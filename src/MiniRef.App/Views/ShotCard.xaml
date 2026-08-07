@@ -102,6 +102,8 @@
                             </ComboBox.ItemTemplate>
                         </ComboBox>
                         <TextBox x:Name="LanguageBox" Width="80" Margin="4,0,0,0" Text="English"/>
+                        <CheckBox x:Name="SilentCheckBox" Content="Silent" Margin="8,0,0,0" VerticalAlignment="Center"
+                                  Checked="SilentCheckBox_CheckedChanged" Unchecked="SilentCheckBox_CheckedChanged"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                         <TextBox x:Name="DialogueTextBox" Width="260" ToolTip="Spoken line"/>

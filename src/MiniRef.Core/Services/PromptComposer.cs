@@ -10,15 +10,33 @@ public static class PromptComposer
     {
         var numbering = ReferenceNumberer.Compute(project);
 
+        // summary, retention_analysis, overall_soundscape, and non_diegetic_music are legitimately
+        // empty in a well-formed project (e.g. no summary written yet, or no subject has a retention
+        // value set, or the scene has no notable ambience/music) -- unlike subject_definitions and
+        // detailed_description, which are always expected to have content. Rather than emit a header
+        // the model has nothing to act on (or, for summary, just a floating "[task type]" tag with
+        // nothing after it -- which risks being read as something to vocalize instead of metadata),
+        // they're dropped entirely when blank. summary is checked against the raw field rather than
+        // the composed content, since the "[task type] " prefix means the composed text is never
+        // actually empty on its own.
+        var retentionAnalysis = BuildRetentionAnalysis(project, numbering);
+        var overallSoundscape = project.OverallSoundscape.Trim();
+        var nonDiegeticMusic = project.NonDiegeticMusic.Trim();
+
         var sections = new (string Name, string Content)[]
         {
             ("subject_definitions", BuildSubjectDefinitions(project, numbering)),
             ("summary", BuildSummary(project)),
-            ("retention_analysis", BuildRetentionAnalysis(project, numbering)),
+            ("retention_analysis", retentionAnalysis),
             ("detailed_description", BuildDetailedDescription(project, numbering)),
-            ("overall_soundscape", project.OverallSoundscape.Trim()),
-            ("non_diegetic_music", project.NonDiegeticMusic.Trim())
-        };
+            ("overall_soundscape", overallSoundscape),
+            ("non_diegetic_music", nonDiegeticMusic)
+        }.Where(s => s.Name switch
+        {
+            "summary" => project.Summary.Trim().Length > 0,
+            "retention_analysis" or "overall_soundscape" or "non_diegetic_music" => s.Content.Length > 0,
+            _ => true
+        }).ToArray();
 
         var sb = new StringBuilder();
         for (var i = 0; i < sections.Length; i++)

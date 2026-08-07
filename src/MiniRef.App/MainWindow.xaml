@@ -15,6 +15,7 @@
         <conv:EnumDisplayConverter x:Key="EnumDisplay"/>
         <conv:IndexPlusOneConverter x:Key="IndexPlusOne"/>
         <conv:PathToFileNameConverter x:Key="PathToFileName"/>
+        <conv:BlankStringToVisibilityConverter x:Key="BlankStringToVisibility"/>
     </Window.Resources>
     <Window.DataContext>
         <vm:MainViewModel/>
@@ -159,7 +160,21 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <TextBox x:Name="SummaryTextBox" Text="{Binding Project.Summary, UpdateSourceTrigger=PropertyChanged}"
-                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" VerticalScrollBarVisibility="Auto"/>
+                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" VerticalScrollBarVisibility="Auto">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Project.Summary, Converter={StaticResource BlankStringToVisibility}}" Value="Visible">
+                                        <Setter Property="BorderBrush" Value="Orange"/>
+                                        <Setter Property="BorderThickness" Value="2"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+                    <TextBlock Text="No summary text -- this section will be left out of the export entirely."
+                               Foreground="Orange" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"
+                               Visibility="{Binding Project.Summary, Converter={StaticResource BlankStringToVisibility}}"/>
 
                     <TextBlock Text="Overall Soundscape" FontWeight="Bold" FontSize="14" Margin="0,16,0,6"/>
                     <TextBox Text="{Binding Project.OverallSoundscape, UpdateSourceTrigger=PropertyChanged}"

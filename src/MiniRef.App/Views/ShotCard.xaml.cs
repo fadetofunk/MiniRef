@@ -178,11 +178,21 @@ public partial class ShotCard : UserControl
         if (SpeakerCombo.SelectedItem is not Subject speaker) return;
         if (AllSubjects is null) return;
 
-        var text = DialogueTextBox.Text.Trim();
-        if (text.Length == 0) return;
-
         var (subjectNumbers, _, _) = ReferenceNumberer.NumberSubjects(AllSubjects);
         var n = subjectNumbers.TryGetValue(speaker.Id, out var num) ? num : 0;
+
+        // Neither guide defines an official "no dialogue" marker -- overall_soundscape's N/A
+        // only covers silence for the whole video, not a single shot. So a silent subject is
+        // called out in prose instead, using the same identifying prefix as spoken dialogue,
+        // to give the model an explicit instruction rather than an audio gap it fills on its own.
+        if (SilentCheckBox.IsChecked == true)
+        {
+            InsertAtCaret($" {ReferenceNumberer.SubjectTag(n)} {ReferenceNumberer.SpeakerTag(n)} says nothing, remaining silent.");
+            return;
+        }
+
+        var text = DialogueTextBox.Text.Trim();
+        if (text.Length == 0) return;
         var lang = string.IsNullOrWhiteSpace(LanguageBox.Text) ? "English" : LanguageBox.Text.Trim();
 
         // Per the guide's speaker/dialogue rules: everything outside <d> is the identifying
@@ -194,6 +204,13 @@ public partial class ShotCard : UserControl
         InsertAtCaret($" {ReferenceNumberer.SubjectTag(n)} {ReferenceNumberer.SpeakerTag(n)} says, <d>[{lang}] {text}</d>");
         shot.Dialogue.Add(new DialogueLine { SpeakerSubjectId = speaker.Id, Language = lang, Text = text });
         DialogueTextBox.Clear();
+    }
+
+    private void SilentCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
+    {
+        var silent = SilentCheckBox.IsChecked == true;
+        LanguageBox.IsEnabled = !silent;
+        DialogueTextBox.IsEnabled = !silent;
     }
 
     private void InsertOnScreenText_Click(object sender, RoutedEventArgs e)

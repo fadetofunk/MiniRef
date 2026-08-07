@@ -181,9 +181,27 @@ public class PromptComposerTests
         var prompt = PromptComposer.Compose(project);
 
         Assert.Contains("[reference generation + audio reference] Something happens.", prompt);
-        // No retention set on the only subject, so retention_analysis body is empty.
-        var retentionSection = prompt.Split("retention_analysis\n")[1].Split("\n\n")[0];
-        Assert.Equal("", retentionSection.Trim());
+        // No retention set on the only subject, so retention_analysis is dropped entirely.
+        Assert.DoesNotContain("retention_analysis", prompt);
+    }
+
+    [Fact]
+    public void BlankSummary_IsDroppedEntirely_EvenWithATaskTypePrefix()
+    {
+        var project = new SceneProject
+        {
+            TaskTypes = TaskType.ReferenceGeneration,
+            Subjects = [new Subject { Name = "A", Description = "a figure" }],
+            Summary = "   "
+        };
+
+        var prompt = PromptComposer.Compose(project);
+
+        // A floating "[reference generation]" tag with no sentence after it risks being read as
+        // something to vocalize instead of metadata, so the whole section is dropped when the
+        // free-text Summary is blank -- not just when the composed "[task type] " text is empty.
+        Assert.DoesNotContain("summary", prompt);
+        Assert.DoesNotContain("reference generation", prompt);
     }
 
     [Fact]
