@@ -1,0 +1,16 @@
+<Window x:Class="MiniRef.App.Views.PromptPreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Composed Prompt" Height="700" Width="640"
+        Background="#181818">
+    <DockPanel Margin="10">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Content="Refresh" Padding="10,4" Click="Refresh_Click"/>
+            <Button Content="Copy to Clipboard" Padding="10,4" Margin="8,0,0,0" Click="Copy_Click"/>
+            <TextBlock x:Name="StatusText" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="#8AB4F8"/>
+        </StackPanel>
+        <TextBox x:Name="PromptTextBox" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13"
+                 Background="#111111" Foreground="#E0E0E0" BorderThickness="0"/>
+    </DockPanel>
+</Window>

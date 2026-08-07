@@ -1,0 +1,18 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Rider / JetBrains
+.idea/
+
+# Claude Code local settings (contains machine-specific paths, not meant to be shared)
+.claude/
+
+# OS cruft
+.DS_Store
+Thumbs.db
