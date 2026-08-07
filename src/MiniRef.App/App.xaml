@@ -14,6 +14,10 @@
             <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}"/>
             <Setter Property="CaretBrush" Value="White"/>
             <Setter Property="Padding" Value="4"/>
+            <!-- On by default since most text boxes in this app are free-form prose (shot
+                 narrative, descriptions, retention notes). The handful that hold names, file
+                 paths, or codes instead turn this back off locally. -->
+            <Setter Property="SpellCheck.IsEnabled" Value="True"/>
         </Style>
 
         <Style TargetType="ComboBox">

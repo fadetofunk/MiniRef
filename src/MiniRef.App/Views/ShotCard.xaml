@@ -18,7 +18,7 @@
                 <TextBlock DockPanel.Dock="Left" FontWeight="Bold" Foreground="#F2C879" VerticalAlignment="Center"
                            Text="{Binding DisplayNumber, ElementName=Root, StringFormat='[Shot {0}]'}"/>
                 <Grid DockPanel.Dock="Left" Width="110" Margin="10,0,0,0">
-                    <TextBox x:Name="TimestampBox"
+                    <TextBox x:Name="TimestampBox" SpellCheck.IsEnabled="False"
                              Background="White" Foreground="Black" CaretBrush="Black"
                              Text="{Binding Timestamp, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Timestamp, e.g. 00:03.500 (optional)"/>
@@ -101,7 +101,7 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
-                        <TextBox x:Name="LanguageBox" Width="80" Margin="4,0,0,0" Text="English"/>
+                        <TextBox x:Name="LanguageBox" Width="80" Margin="4,0,0,0" Text="English" SpellCheck.IsEnabled="False"/>
                         <CheckBox x:Name="SilentCheckBox" Content="Silent" Margin="8,0,0,0" VerticalAlignment="Center"
                                   Checked="SilentCheckBox_CheckedChanged" Unchecked="SilentCheckBox_CheckedChanged"/>
                     </StackPanel>

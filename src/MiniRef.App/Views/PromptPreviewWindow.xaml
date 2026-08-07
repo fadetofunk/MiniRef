@@ -9,7 +9,7 @@
             <Button Content="Copy to Clipboard" Padding="10,4" Margin="8,0,0,0" Click="Copy_Click"/>
             <TextBlock x:Name="StatusText" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="#8AB4F8"/>
         </StackPanel>
-        <TextBox x:Name="PromptTextBox" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+        <TextBox x:Name="PromptTextBox" IsReadOnly="True" SpellCheck.IsEnabled="False" TextWrapping="Wrap" AcceptsReturn="True"
                  VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13"
                  Background="#111111" Foreground="#E0E0E0" BorderThickness="0"/>
     </DockPanel>

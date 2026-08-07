@@ -15,7 +15,7 @@
                        Text="e.g. C:\ComfyUI -- workflows export to '{root}\user\default\workflows' and picture/audio files copy into '{root}\input' automatically."/>
             <DockPanel>
                 <Button DockPanel.Dock="Right" Content="Browse..." Padding="10,4" Margin="6,0,0,0" Click="Browse_Click"/>
-                <TextBox x:Name="RootFolderTextBox" VerticalContentAlignment="Center" TextChanged="RootFolderTextBox_TextChanged"/>
+                <TextBox x:Name="RootFolderTextBox" VerticalContentAlignment="Center" SpellCheck.IsEnabled="False" TextChanged="RootFolderTextBox_TextChanged"/>
             </DockPanel>
             <TextBlock x:Name="RootValidationText" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
 
@@ -46,6 +46,7 @@
                                         <Button DockPanel.Dock="Right" Content="Browse..." Padding="8,2" Margin="6,0,0,0"
                                                 Click="BrowseModel_Click"/>
                                         <TextBox Text="{Binding OverrideFilename, UpdateSourceTrigger=PropertyChanged}"
+                                                 SpellCheck.IsEnabled="False"
                                                  ToolTip="Leave blank to keep the bundled default"/>
                                     </DockPanel>
                                 </StackPanel>

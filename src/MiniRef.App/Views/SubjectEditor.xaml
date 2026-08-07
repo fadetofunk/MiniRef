@@ -41,6 +41,7 @@
             </ComboBox>
 
             <TextBox Margin="0,6,0,0" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                     SpellCheck.IsEnabled="False"
                      ToolTip="Name (for your reference)"/>
 
             <TextBox Margin="0,6,0,0" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}"

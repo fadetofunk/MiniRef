@@ -30,7 +30,8 @@
                 <Button Content="Save" Padding="10,4" Margin="6,0,0,0" Command="{Binding SaveProjectCommand}"/>
                 <Button Content="Save As..." Padding="10,4" Margin="6,0,0,0" Command="{Binding SaveProjectAsCommand}"/>
                 <TextBlock Text="Scene name:" VerticalAlignment="Center" Margin="20,0,6,0"/>
-                <TextBox Width="220" VerticalAlignment="Center" Text="{Binding Project.Name, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBox Width="220" VerticalAlignment="Center" SpellCheck.IsEnabled="False"
+                         Text="{Binding Project.Name, UpdateSourceTrigger=PropertyChanged}"/>
                 <Button Content="Preview &amp; Copy Prompt" Padding="12,4" Margin="20,0,0,0"
                         Background="#3B6EA5" Foreground="White" FontWeight="Bold"
                         Click="Preview_Click"/>

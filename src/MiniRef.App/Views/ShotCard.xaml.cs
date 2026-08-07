@@ -221,15 +221,21 @@ public partial class ShotCard : UserControl
         OnScreenTextBox.Clear();
     }
 
+    /// <summary>Inserts at the caret as before, except when text is selected in the shot box --
+    /// then the selection is replaced instead, so e.g. selecting a placeholder word and clicking
+    /// a reference chip swaps it in rather than leaving the placeholder behind.</summary>
     private void InsertAtCaret(string text)
     {
         if (Shot is not { } shot) return;
-        var caret = Math.Clamp(ShotTextBox.CaretIndex, 0, shot.Text.Length);
-        shot.Text = shot.Text.Insert(caret, text);
+
+        var start = Math.Clamp(ShotTextBox.SelectionStart, 0, shot.Text.Length);
+        var length = Math.Min(ShotTextBox.SelectionLength, shot.Text.Length - start);
+
+        shot.Text = shot.Text.Remove(start, length).Insert(start, text);
 
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            ShotTextBox.CaretIndex = Math.Min(caret + text.Length, shot.Text.Length);
+            ShotTextBox.CaretIndex = Math.Min(start + text.Length, shot.Text.Length);
             ShotTextBox.Focus();
         }), DispatcherPriority.Background);
     }
