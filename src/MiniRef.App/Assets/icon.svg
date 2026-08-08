@@ -1,0 +1,55 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Background gradient: deep plum to near-black indigo -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3A2154"/>
+      <stop offset="55%" stop-color="#241432"/>
+      <stop offset="100%" stop-color="#140B1D"/>
+    </linearGradient>
+
+    <!-- Ambient glow behind the mark -->
+    <radialGradient id="glow" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#F2A93C" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#F2A93C" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Accent gradient for the mark strokes -->
+    <linearGradient id="markGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F7C468"/>
+      <stop offset="100%" stop-color="#E8734F"/>
+    </linearGradient>
+
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F5EFE4" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#F5EFE4" stop-opacity="0.35"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded-square app tile -->
+  <rect x="0" y="0" width="512" height="512" rx="114" fill="url(#bg)"/>
+
+  <!-- Ambient glow -->
+  <circle cx="256" cy="220" r="200" fill="url(#glow)"/>
+
+  <!-- Reference / targeting ring, slightly open like a dial being tuned -->
+  <circle cx="256" cy="256" r="132" fill="none" stroke="url(#ringGrad)" stroke-width="7"
+          stroke-dasharray="792" stroke-dashoffset="70" stroke-linecap="round"
+          transform="rotate(-90 256 256)"/>
+
+  <!-- Cardinal reference ticks -->
+  <g stroke="#F5EFE4" stroke-width="7" stroke-linecap="round" opacity="0.85">
+    <line x1="256" y1="98"  x2="256" y2="122"/>
+    <line x1="256" y1="390" x2="256" y2="414"/>
+    <line x1="98"  y1="256" x2="122" y2="256"/>
+    <line x1="390" y1="256" x2="414" y2="256"/>
+  </g>
+
+  <!-- Central signature: converging strokes distilling down to a single -
+       focused point, reading as a stylized M and a tuned focal mark -->
+  <g fill="none" stroke="url(#markGrad)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 174 312 L 174 208 L 256 276 L 338 208 L 338 312"/>
+  </g>
+
+  <!-- Focal point at the base: the "reference" the prompt is tuned to -->
+  <circle cx="256" cy="330" r="14" fill="#F5EFE4"/>
+</svg>

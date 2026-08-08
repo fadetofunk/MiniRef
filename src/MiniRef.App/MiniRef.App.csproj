@@ -12,6 +12,7 @@
     <Content Include="Assets\video_minimax_h3_r2v.template.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Resource Include="Assets\icon.ico" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -20,6 +21,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>

@@ -10,6 +10,7 @@
         xmlns:vm="clr-namespace:MiniRef.App.ViewModels"
         mc:Ignorable="d"
         Title="MiniMax H3 Reference Prompt Composer" Height="900" Width="1400"
+        Icon="/Assets/icon.ico"
         Background="{DynamicResource ApplicationBackgroundBrush}" Foreground="{DynamicResource TextFillColorPrimaryBrush}">
     <Window.Resources>
         <conv:EnumDisplayConverter x:Key="EnumDisplay"/>
