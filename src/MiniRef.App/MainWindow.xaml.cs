@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Threading;
 using MiniRef.App.ViewModels;
 using MiniRef.App.Views;
@@ -161,5 +163,58 @@ public partial class MainWindow : Window
     private void Preview_Click(object sender, RoutedEventArgs e)
     {
         new PromptPreviewWindow(ViewModel.Project) { Owner = this }.Show();
+    }
+
+    private void MainWindow_Closing(object sender, CancelEventArgs e)
+    {
+        if (!ViewModel.ConfirmExit())
+            e.Cancel = true;
+    }
+
+    /// <summary>Switches the active project to whichever row was clicked in the project switcher's
+    /// dropdown. Clicks on that row's rename/close buttons never reach here -- Button already marks
+    /// the underlying mouse event handled before it can bubble up to this Border-level handler.</summary>
+    private void ProjectRow_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is not ProjectTab { IsEditingName: false } tab) return;
+        ViewModel.ActiveTab = tab;
+        ProjectSwitcherToggle.IsChecked = false;
+    }
+
+    private void EditProjectName_Click(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is ProjectTab tab)
+            tab.IsEditingName = true;
+    }
+
+    private void CloseProjectTab_Click(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is ProjectTab tab)
+            ViewModel.CloseProjectCommand.Execute(tab);
+    }
+
+    /// <summary>Focuses and selects the rename TextBox the moment it becomes visible, rather than
+    /// requiring a second click after hitting the pencil button.</summary>
+    private void RenameBox_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (sender is TextBox { IsVisible: true } box)
+        {
+            box.Focus();
+            box.SelectAll();
+        }
+    }
+
+    private void RenameBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Enter or Key.Escape)) return;
+        if (((FrameworkElement)sender).DataContext is ProjectTab tab)
+            tab.IsEditingName = false;
+        e.Handled = true;
+    }
+
+    private void RenameBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is ProjectTab tab)
+            tab.IsEditingName = false;
     }
 }

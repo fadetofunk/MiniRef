@@ -1,5 +1,7 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
@@ -25,9 +27,33 @@ public partial class MainViewModel : ObservableObject
     private static readonly Guid ComfyExportDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a05");
     private static readonly Guid ComfyImportDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a06");
 
-    [ObservableProperty] private SceneProject project = new();
-    [ObservableProperty] private string? currentFilePath;
+    [ObservableProperty] private ObservableCollection<ProjectTab> openProjects = [];
+    [ObservableProperty] private ProjectTab? activeTab;
     [ObservableProperty] private AppSettings settings = SettingsStore.Load();
+
+    private readonly SceneProject _fallbackProject = new();
+    private readonly DispatcherTimer _autosaveTimer;
+
+    public MainViewModel()
+    {
+        LoadSessionOrDefault();
+
+        // Backstops SaveSession's other call sites (tab add/remove/rename, Save, app exit) in case
+        // the process ends without a clean shutdown -- e.g. a crash, or Windows forcing the app
+        // closed -- so a long editing session without any of those events still isn't a total loss.
+        _autosaveTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _autosaveTimer.Tick += (_, _) => SaveSession();
+        _autosaveTimer.Start();
+    }
+
+    /// <summary>The active tab's project. Kept as a passthrough property -- rather than rewriting
+    /// every "Project.X" binding and usage throughout the app to "ActiveTab.Project.X" -- so
+    /// switching to multiple open projects didn't require reshaping the rest of the app. Falls back
+    /// to a private throwaway instance if there's ever no active tab, which shouldn't happen once
+    /// the constructor finishes (OpenProjects always has at least one tab).</summary>
+    public SceneProject Project => ActiveTab?.Project ?? _fallbackProject;
+
+    public string? CurrentFilePath => ActiveTab?.FilePath;
 
     public bool TaskKeyframeCompletion
     {
@@ -76,8 +102,10 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(TaskAudioReference));
     }
 
-    partial void OnProjectChanged(SceneProject value)
+    partial void OnActiveTabChanged(ProjectTab? value)
     {
+        OnPropertyChanged(nameof(Project));
+        OnPropertyChanged(nameof(CurrentFilePath));
         OnPropertyChanged(nameof(TaskKeyframeCompletion));
         OnPropertyChanged(nameof(TaskReferenceGeneration));
         OnPropertyChanged(nameof(TaskVideoEditing));
@@ -179,8 +207,13 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void NewProject()
     {
-        Project = new SceneProject();
-        CurrentFilePath = null;
+        var dialog = new NewProjectDialog { Owner = Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true) return;
+
+        var tab = new ProjectTab(new SceneProject { Name = dialog.ProjectName });
+        OpenProjects.Add(tab);
+        ActiveTab = tab;
+        SaveSession();
     }
 
     [RelayCommand]
@@ -190,38 +223,117 @@ public partial class MainViewModel : ObservableObject
         if (Directory.Exists(Settings.LastProjectFolder)) dialog.InitialDirectory = Settings.LastProjectFolder;
         if (dialog.ShowDialog() != true) return;
 
-        Project = ProjectStore.Load(dialog.FileName);
-        CurrentFilePath = dialog.FileName;
+        OpenProjectFile(dialog.FileName);
         RememberFolder(f => Settings.LastProjectFolder = f, dialog.FileName);
     }
 
-    [RelayCommand]
-    private void SaveProject()
+    /// <summary>Switches to the file's tab instead of opening a duplicate if it's already open.</summary>
+    private void OpenProjectFile(string filePath)
     {
-        if (CurrentFilePath is null)
+        var existing = OpenProjects.FirstOrDefault(t =>
+            t.FilePath is not null && string.Equals(t.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
         {
-            SaveProjectAs();
+            ActiveTab = existing;
             return;
         }
 
-        ProjectStore.Save(Project, CurrentFilePath);
+        var tab = new ProjectTab(ProjectStore.Load(filePath), filePath);
+        OpenProjects.Add(tab);
+        ActiveTab = tab;
+        SaveSession();
     }
 
     [RelayCommand]
-    private void SaveProjectAs()
+    private void SaveProject() => SaveTab(ActiveTab);
+
+    /// <returns>False if there was no tab to save, or the user cancelled a Save As dialog that a
+    /// never-saved-before tab needed -- callers use this to decide whether to proceed with whatever
+    /// prompted the save (e.g. closing a tab that turned out to still have unsaved changes).</returns>
+    private bool SaveTab(ProjectTab? tab)
     {
+        if (tab is null) return false;
+        if (tab.FilePath is null) return SaveTabAs(tab);
+
+        ProjectStore.Save(tab.Project, tab.FilePath);
+        tab.MarkSaved();
+        SaveSession();
+        return true;
+    }
+
+    [RelayCommand]
+    private void SaveProjectAs() => SaveTabAs(ActiveTab);
+
+    private bool SaveTabAs(ProjectTab? tab)
+    {
+        if (tab is null) return false;
+
         var dialog = new SaveFileDialog
         {
             Filter = "MiniRef project (*.mmref.json)|*.mmref.json|All files (*.*)|*.*",
-            FileName = Project.Name + ProjectStore.FileExtension,
+            FileName = tab.Project.Name + ProjectStore.FileExtension,
             ClientGuid = ProjectDialogGuid
         };
         if (Directory.Exists(Settings.LastProjectFolder)) dialog.InitialDirectory = Settings.LastProjectFolder;
-        if (dialog.ShowDialog() != true) return;
+        if (dialog.ShowDialog() != true) return false;
 
-        ProjectStore.Save(Project, dialog.FileName);
-        CurrentFilePath = dialog.FileName;
+        ProjectStore.Save(tab.Project, dialog.FileName);
+        tab.FilePath = dialog.FileName;
+        tab.MarkSaved();
         RememberFolder(f => Settings.LastProjectFolder = f, dialog.FileName);
+        SaveSession();
+        return true;
+    }
+
+    /// <summary>Closes one project tab from the project switcher, prompting to save first if it has
+    /// unsaved changes. Always leaves at least one tab open -- closing the last one opens a fresh
+    /// blank project rather than leaving the app with nothing to show.</summary>
+    [RelayCommand]
+    private void CloseProject(ProjectTab tab)
+    {
+        if (!ConfirmDiscard(tab)) return;
+
+        var index = OpenProjects.IndexOf(tab);
+        OpenProjects.Remove(tab);
+
+        if (OpenProjects.Count == 0)
+            OpenProjects.Add(new ProjectTab(new SceneProject()));
+
+        if (ActiveTab == tab)
+            ActiveTab = OpenProjects[Math.Clamp(index, 0, OpenProjects.Count - 1)];
+
+        SaveSession();
+    }
+
+    /// <returns>False if the caller should abort whatever it was about to do -- the user hit
+    /// Cancel, or chose to save first but a required Save As dialog got cancelled.</returns>
+    private bool ConfirmDiscard(ProjectTab tab)
+    {
+        if (!tab.IsDirty) return true;
+
+        var result = MessageBox.Show(
+            $"Save changes to \"{tab.Project.Name}\" before closing?",
+            "Unsaved Changes", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+
+        return result switch
+        {
+            MessageBoxResult.Yes => SaveTab(tab),
+            MessageBoxResult.No => true,
+            _ => false
+        };
+    }
+
+    /// <summary>Called from MainWindow's Closing handler -- checks every open tab, not just the
+    /// active one, since closing the whole app risks losing changes sitting in background tabs too.</summary>
+    public bool ConfirmExit()
+    {
+        foreach (var tab in OpenProjects)
+        {
+            if (!ConfirmDiscard(tab)) return false;
+        }
+
+        SaveSession();
+        return true;
     }
 
     [RelayCommand]
@@ -283,8 +395,7 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>Reconstructs a project from a ComfyUI workflow this tool previously exported --
     /// best-effort, since it's reading the composed prompt text and node titles back rather than
-    /// any dedicated round-trip format. Always lands as a new, unsaved project; never overwrites
-    /// whatever's open.</summary>
+    /// any dedicated round-trip format. Always opens as a new tab; never replaces what's open.</summary>
     [RelayCommand]
     private void ImportComfyWorkflow()
     {
@@ -329,8 +440,10 @@ public partial class MainViewModel : ObservableObject
         }
 
         imported.Name = GuessProjectName(dialog.FileName);
-        Project = imported;
-        CurrentFilePath = null;
+        var tab = new ProjectTab(imported);
+        OpenProjects.Add(tab);
+        ActiveTab = tab;
+        SaveSession();
 
         MessageBox.Show(
             "Workflow imported as a new project. This is a best-effort reconstruction from the exported prompt text " +
@@ -423,11 +536,37 @@ public partial class MainViewModel : ObservableObject
         return cleaned.Length == 0 ? "Untitled Scene" : cleaned;
     }
 
-    private static void Move<T>(System.Collections.ObjectModel.ObservableCollection<T> list, T item, int offset)
+    private static void Move<T>(ObservableCollection<T> list, T item, int offset)
     {
         var index = list.IndexOf(item);
         var newIndex = index + offset;
         if (index < 0 || newIndex < 0 || newIndex >= list.Count) return;
         list.Move(index, newIndex);
+    }
+
+    /// <summary>Restores every project that was open last session (each from its own cached
+    /// snapshot, which may hold edits never explicitly saved to its file), or falls back to one
+    /// fresh blank project on first run or if there's no session to restore.</summary>
+    private void LoadSessionOrDefault()
+    {
+        var loaded = SessionStore.Load(out var activeIndex);
+        if (loaded is { Count: > 0 })
+        {
+            foreach (var (project, filePath) in loaded)
+                OpenProjects.Add(new ProjectTab(project, filePath));
+            ActiveTab = OpenProjects[Math.Clamp(activeIndex, 0, OpenProjects.Count - 1)];
+        }
+        else
+        {
+            var tab = new ProjectTab(new SceneProject());
+            OpenProjects.Add(tab);
+            ActiveTab = tab;
+        }
+    }
+
+    private void SaveSession()
+    {
+        var activeIndex = ActiveTab is null ? 0 : Math.Max(0, OpenProjects.IndexOf(ActiveTab));
+        SessionStore.Save(OpenProjects.Select(t => (t.Id, t.Project, t.FilePath)).ToList(), activeIndex);
     }
 }

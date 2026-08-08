@@ -11,12 +11,16 @@
         mc:Ignorable="d"
         Title="MiniMax H3 Reference Prompt Composer" Height="900" Width="1400"
         Icon="/Assets/icon.ico"
-        Background="{DynamicResource ApplicationBackgroundBrush}" Foreground="{DynamicResource TextFillColorPrimaryBrush}">
+        Background="{DynamicResource ApplicationBackgroundBrush}" Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+        Closing="MainWindow_Closing">
     <Window.Resources>
         <conv:EnumDisplayConverter x:Key="EnumDisplay"/>
         <conv:IndexPlusOneConverter x:Key="IndexPlusOne"/>
         <conv:PathToFileNameConverter x:Key="PathToFileName"/>
         <conv:BlankStringToVisibilityConverter x:Key="BlankStringToVisibility"/>
+        <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
+        <conv:EqualityToVisibilityConverter x:Key="EqualityToVisibility"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <Style x:Key="PlaceholderOverlayStyle" TargetType="TextBlock">
             <Setter Property="IsHitTestVisible" Value="False"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
@@ -39,9 +43,65 @@
                 <Button Content="Open..." Padding="10,4" Margin="6,0,0,0" Command="{Binding OpenProjectCommand}"/>
                 <Button Content="Save" Padding="10,4" Margin="6,0,0,0" Command="{Binding SaveProjectCommand}"/>
                 <Button Content="Save As..." Padding="10,4" Margin="6,0,0,0" Command="{Binding SaveProjectAsCommand}"/>
-                <TextBlock Text="Scene name:" VerticalAlignment="Center" Margin="20,0,6,0"/>
-                <TextBox Width="220" VerticalAlignment="Center" SpellCheck.IsEnabled="False"
-                         Text="{Binding Project.Name, UpdateSourceTrigger=PropertyChanged}"/>
+                <ToggleButton x:Name="ProjectSwitcherToggle" Padding="10,4" Margin="20,0,0,0"
+                              VerticalAlignment="Center" HorizontalContentAlignment="Left">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Project.Name}" FontWeight="Bold" MaxWidth="220" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text=" ▾" Margin="6,0,0,0"/>
+                    </StackPanel>
+                </ToggleButton>
+                <Popup PlacementTarget="{Binding ElementName=ProjectSwitcherToggle}" Placement="Bottom"
+                       IsOpen="{Binding IsChecked, ElementName=ProjectSwitcherToggle, Mode=TwoWay}"
+                       StaysOpen="False" AllowsTransparency="True" PopupAnimation="Slide">
+                    <Border Background="{DynamicResource ApplicationBackgroundBrush}"
+                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4"
+                            MinWidth="280" Margin="0,2,0,0">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="320">
+                            <ItemsControl ItemsSource="{Binding OpenProjects}" Margin="4">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Padding="6,4" CornerRadius="3" Margin="0,1"
+                                                Background="Transparent" MouseLeftButtonUp="ProjectRow_Click">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorSecondaryBrush}"/>
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <DockPanel LastChildFill="True">
+                                                <Button DockPanel.Dock="Right" Content="✕" Width="20" Padding="0" Margin="4,0,0,0"
+                                                        Click="CloseProjectTab_Click" ToolTip="Close this project"/>
+                                                <Button DockPanel.Dock="Right" Content="✎" Width="20" Padding="0"
+                                                        Click="EditProjectName_Click" ToolTip="Rename this project"/>
+                                                <TextBlock DockPanel.Dock="Left" Text="●" Width="14" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}">
+                                                    <TextBlock.Visibility>
+                                                        <MultiBinding Converter="{StaticResource EqualityToVisibility}">
+                                                            <Binding/>
+                                                            <Binding Path="PlacementTarget.DataContext.ActiveTab" RelativeSource="{RelativeSource AncestorType=Popup}"/>
+                                                        </MultiBinding>
+                                                    </TextBlock.Visibility>
+                                                </TextBlock>
+                                                <Grid>
+                                                    <TextBlock Text="{Binding Project.Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                               Visibility="{Binding IsEditingName, Converter={StaticResource InverseBoolToVisibility}}"/>
+                                                    <TextBox x:Name="RenameBox" Text="{Binding Project.Name, UpdateSourceTrigger=PropertyChanged}"
+                                                             SpellCheck.IsEnabled="False"
+                                                             Visibility="{Binding IsEditingName, Converter={StaticResource BoolToVis}}"
+                                                             IsVisibleChanged="RenameBox_IsVisibleChanged"
+                                                             KeyDown="RenameBox_KeyDown" LostFocus="RenameBox_LostFocus"/>
+                                                </Grid>
+                                            </DockPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
+                </Popup>
                 <Button Content="Preview &amp; Copy Prompt" Padding="12,4" Margin="20,0,0,0"
                         Background="#3B6EA5" Foreground="White" FontWeight="Bold"
                         Click="Preview_Click"/>

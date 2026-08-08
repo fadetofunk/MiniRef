@@ -8,7 +8,10 @@ public static class ProjectStore
 {
     public const string FileExtension = ".mmref.json";
 
-    private static readonly JsonSerializerOptions Options = new()
+    /// <summary>Shared with <see cref="SessionStore"/> and the App layer's ProjectTab so every
+    /// place that (de)serializes a SceneProject -- to its own file, to the session cache, or just
+    /// to compare against a last-saved snapshot for dirty-tracking -- agrees on the same shape.</summary>
+    public static readonly JsonSerializerOptions Options = new()
     {
         WriteIndented = true,
         Converters = { new JsonStringEnumConverter() }
