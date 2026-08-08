@@ -11,11 +11,11 @@
         <conv:EnumDisplayConverter x:Key="EnumDisplay"/>
     </UserControl.Resources>
 
-    <Border BorderBrush="#3A3A3A" BorderThickness="1" CornerRadius="4" Margin="0,0,0,10" Padding="10"
-            Background="#202020">
+    <Border BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,10" Padding="10"
+            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
         <StackPanel>
             <DockPanel LastChildFill="False">
-                <TextBlock DockPanel.Dock="Left" FontWeight="Bold" Foreground="#F2C879" VerticalAlignment="Center"
+                <TextBlock DockPanel.Dock="Left" FontWeight="Bold" Foreground="{DynamicResource SystemFillColorCautionBrush}" VerticalAlignment="Center"
                            Text="{Binding DisplayNumber, ElementName=Root, StringFormat='[Shot {0}]'}"/>
                 <Grid DockPanel.Dock="Left" Width="110" Margin="10,0,0,0">
                     <TextBox x:Name="TimestampBox" SpellCheck.IsEnabled="False"
@@ -45,7 +45,7 @@
                 <Button DockPanel.Dock="Right" Content="↑" Width="22" Padding="0" Margin="0,0,4,0" Click="MoveUp_Click" ToolTip="Move up"/>
             </DockPanel>
 
-            <TextBlock Text="Insert reference:" FontSize="11" Foreground="Gray" Margin="0,8,0,2"/>
+            <TextBlock Text="Insert reference:" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,8,0,2"/>
             <ItemsControl ItemsSource="{Binding Chips, ElementName=Root}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -68,38 +68,38 @@
                          DataObject.Pasting="ShotTextBox_Pasting"
                          ToolTip="Shot narrative -- action, camera, sound, dialogue in playback order. Subject/Picture/Audio/Video references show as colored chips."/>
 
-            <Expander Header="Camera motion" Margin="0,8,0,0" Foreground="Gray">
+            <Expander Header="Camera motion" Margin="0,8,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}">
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                     <ComboBox x:Name="MotionCombo" Width="130"
                               ItemsSource="{x:Static app:EnumSources.CameraMotionChoices}">
                         <ComboBox.ItemTemplate>
-                            <DataTemplate><TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" Foreground="Black"/></DataTemplate>
+                            <DataTemplate><TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/></DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
                     <ComboBox x:Name="AmplitudeCombo" Width="90" Margin="4,0,0,0"
                               ItemsSource="{x:Static app:EnumSources.CameraAmplitudeChoices}">
                         <ComboBox.ItemTemplate>
-                            <DataTemplate><TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" Foreground="Black"/></DataTemplate>
+                            <DataTemplate><TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/></DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
                     <ComboBox x:Name="SpeedCombo" Width="80" Margin="4,0,0,0"
                               ItemsSource="{x:Static app:EnumSources.CameraSpeedChoices}">
                         <ComboBox.ItemTemplate>
-                            <DataTemplate><TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" Foreground="Black"/></DataTemplate>
+                            <DataTemplate><TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/></DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
                     <Button Content="Insert" Margin="6,0,0,0" Click="InsertMotion_Click"/>
                 </StackPanel>
             </Expander>
 
-            <Expander Header="Dialogue line" Margin="0,6,0,0" Foreground="Gray">
+            <Expander Header="Dialogue line" Margin="0,6,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}">
                 <StackPanel Margin="0,6,0,0">
                     <StackPanel Orientation="Horizontal">
                         <ComboBox x:Name="SpeakerCombo" Width="130"
                                   ItemsSource="{Binding AllSubjects, ElementName=Root}">
                             <ComboBox.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding Name}" Foreground="Black"/>
+                                    <TextBlock Text="{Binding Name}"/>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
@@ -114,7 +114,7 @@
                 </StackPanel>
             </Expander>
 
-            <Expander Header="On-screen text" Margin="0,6,0,0" Foreground="Gray">
+            <Expander Header="On-screen text" Margin="0,6,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}">
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                     <TextBox x:Name="OnScreenTextBox" Width="260"/>
                     <Button Content="Insert" Margin="6,0,0,0" Click="InsertOnScreenText_Click"/>

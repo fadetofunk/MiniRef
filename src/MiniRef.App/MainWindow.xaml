@@ -10,7 +10,7 @@
         xmlns:vm="clr-namespace:MiniRef.App.ViewModels"
         mc:Ignorable="d"
         Title="MiniMax H3 Reference Prompt Composer" Height="900" Width="1400"
-        Background="#181818" Foreground="#E0E0E0">
+        Background="{DynamicResource ApplicationBackgroundBrush}" Foreground="{DynamicResource TextFillColorPrimaryBrush}">
     <Window.Resources>
         <conv:EnumDisplayConverter x:Key="EnumDisplay"/>
         <conv:IndexPlusOneConverter x:Key="IndexPlusOne"/>
@@ -23,7 +23,7 @@
 
     <DockPanel>
         <!-- Toolbar -->
-        <Border DockPanel.Dock="Top" Background="#252525" Padding="8">
+        <Border DockPanel.Dock="Top" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" Padding="8">
             <StackPanel Orientation="Horizontal">
                 <Button Content="New" Padding="10,4" Command="{Binding NewProjectCommand}"/>
                 <Button Content="Open..." Padding="10,4" Margin="6,0,0,0" Command="{Binding OpenProjectCommand}"/>
@@ -72,7 +72,7 @@
                 </ScrollViewer>
             </DockPanel>
 
-            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#3A3A3A"/>
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="{DynamicResource ControlStrokeColorDefaultBrush}"/>
 
             <!-- Shots -->
             <DockPanel Grid.Column="2" Margin="8">
@@ -98,7 +98,7 @@
                 </ScrollViewer>
             </DockPanel>
 
-            <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch" Background="#3A3A3A"/>
+            <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch" Background="{DynamicResource ControlStrokeColorDefaultBrush}"/>
 
             <!-- Scene fields -->
             <ScrollViewer Grid.Column="4" VerticalScrollBarVisibility="Auto" Margin="8">
@@ -124,7 +124,7 @@
                               SelectedItem="{Binding Project.AspectRatio}">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" Foreground="Black"/>
+                                <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/>
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
@@ -142,13 +142,13 @@
                               SelectedItem="{Binding Project.VisualStyle}">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" Foreground="Black"/>
+                                <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/>
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
 
                     <TextBlock Text="Summary" FontWeight="Bold" FontSize="14" Margin="0,16,0,6"/>
-                    <TextBlock Text="Insert reference:" FontSize="11" Foreground="Gray" Margin="0,0,0,2"/>
+                    <TextBlock Text="Insert reference:" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,0,0,2"/>
                     <ItemsControl x:Name="SummaryChipsControl">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
@@ -166,7 +166,7 @@
                             <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding Project.Summary, Converter={StaticResource BlankStringToVisibility}}" Value="Visible">
-                                        <Setter Property="BorderBrush" Value="Orange"/>
+                                        <Setter Property="BorderBrush" Value="{DynamicResource SystemFillColorCautionBrush}"/>
                                         <Setter Property="BorderThickness" Value="2"/>
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -174,7 +174,7 @@
                         </TextBox.Style>
                     </TextBox>
                     <TextBlock Text="No summary text -- this section will be left out of the export entirely."
-                               Foreground="Orange" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"
+                               Foreground="{DynamicResource SystemFillColorCautionBrush}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"
                                Visibility="{Binding Project.Summary, Converter={StaticResource BlankStringToVisibility}}"/>
 
                     <TextBlock Text="Overall Soundscape" FontWeight="Bold" FontSize="14" Margin="0,16,0,6"/>
@@ -191,14 +191,14 @@
                                 Command="{Binding AddSourceVideoCommand}"/>
                     </DockPanel>
                     <TextBlock Text="(only needed for video editing / continuation task types)"
-                               FontSize="10" Foreground="Gray" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                               FontSize="10" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,0,0,4" TextWrapping="Wrap"/>
                     <ItemsControl ItemsSource="{Binding Project.SourceVideos}" AlternationCount="1000000">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type models:VideoRef}">
-                                <Border Margin="0,2,0,0" Padding="4" Background="#232323" CornerRadius="3">
+                                <Border Margin="0,2,0,0" Padding="4" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" CornerRadius="3">
                                     <StackPanel>
                                         <DockPanel LastChildFill="False">
-                                            <TextBlock DockPanel.Dock="Left" FontWeight="Bold" Foreground="#8AB4F8" Margin="0,0,6,0"
+                                            <TextBlock DockPanel.Dock="Left" FontWeight="Bold" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" Margin="0,0,6,0"
                                                        Text="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter},
                                                                       Path=(ItemsControl.AlternationIndex),
                                                                       Converter={StaticResource IndexPlusOne},
@@ -216,16 +216,16 @@
                                                               RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"/>
                                             <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" FontSize="10"
-                                                       Foreground="Gray" TextTrimming="CharacterEllipsis"
+                                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"
                                                        ToolTip="{Binding FilePath}"
                                                        Text="{Binding FilePath, Converter={StaticResource PathToFileName}}"/>
                                         </DockPanel>
-                                        <TextBlock Text="Retention" FontSize="10" Foreground="Gray" Margin="0,6,0,2"/>
+                                        <TextBlock Text="Retention" FontSize="10" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,6,0,2"/>
                                         <ComboBox ItemsSource="{x:Static local:EnumSources.VisualRetentionChoices}"
                                                   SelectedItem="{Binding Retention}">
                                             <ComboBox.ItemTemplate>
                                                 <DataTemplate>
-                                                    <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" Foreground="Black"/>
+                                                    <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/>
                                                 </DataTemplate>
                                             </ComboBox.ItemTemplate>
                                         </ComboBox>

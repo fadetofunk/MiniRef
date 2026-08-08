@@ -89,12 +89,12 @@ public partial class SettingsWindow : Window
         if (ComfyRootValidator.LooksValid(path))
         {
             RootValidationText.Text = "✓ Found 'input' and 'models' folders here -- looks like a ComfyUI install.";
-            RootValidationText.Foreground = System.Windows.Media.Brushes.LightGreen;
+            RootValidationText.Foreground = (System.Windows.Media.Brush)FindResource("SystemFillColorSuccessBrush");
         }
         else
         {
             RootValidationText.Text = "⚠ Couldn't find 'input' and 'models' subfolders here -- double-check this is the right folder.";
-            RootValidationText.Foreground = System.Windows.Media.Brushes.Orange;
+            RootValidationText.Foreground = (System.Windows.Media.Brush)FindResource("SystemFillColorCautionBrush");
         }
     }
 
