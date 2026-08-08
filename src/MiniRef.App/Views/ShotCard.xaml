@@ -20,10 +20,10 @@
                            Text="{Binding DisplayNumber, ElementName=Root, StringFormat='[Shot {0}]'}"/>
                 <Grid DockPanel.Dock="Left" Width="110" Margin="10,0,0,0">
                     <TextBox x:Name="TimestampBox" SpellCheck.IsEnabled="False"
-                             Background="White" Foreground="Black" CaretBrush="Black"
                              Text="{Binding Timestamp, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Timestamp, e.g. 00:03.500 (optional)"/>
-                    <TextBlock Text="timestamp" Foreground="Black" Margin="7,0,0,0"
+                    <TextBlock Text="Timestamp" FontStyle="Italic" Opacity="0.65"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="7,0,0,0"
                                VerticalAlignment="Center" IsHitTestVisible="False">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
