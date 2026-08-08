@@ -118,6 +118,39 @@ public static class EnumFormatting
         _ => value.ToString()
     };
 
+    // The Try* methods below invert their ToPromptToken() counterpart above, for
+    // ComfyWorkflowImporter reconstructing a project from an exported workflow's literal text.
+    // Each does a simple linear scan over the enum's own values rather than a static reverse
+    // dictionary, since these enums are small and it keeps every token pair defined in exactly
+    // one place (the switch above) instead of two that could drift apart.
+
+    public static bool TryParseVisualRetentionToken(string token, out VisualRetentionType value) =>
+        TryParseToken(Enum.GetValues<VisualRetentionType>(), v => v.ToPromptToken(), token, out value);
+
+    public static bool TryParseAudioRetentionToken(string token, out AudioRetentionType value) =>
+        TryParseToken(Enum.GetValues<AudioRetentionType>(), v => v.ToPromptToken(), token, out value);
+
+    public static bool TryParseTaskTypeToken(string token, out TaskType value) =>
+        TryParseToken(Enum.GetValues<TaskType>().Where(t => t != TaskType.None), v => v.ToPromptToken(), token, out value);
+
+    public static bool TryParseVisualStyleToken(string token, out VisualStyle value) =>
+        TryParseToken(Enum.GetValues<VisualStyle>(), v => v.ToPromptToken(), token, out value);
+
+    public static bool TryParseAspectRatioToken(string token, out WorkflowAspectRatio value) =>
+        TryParseToken(Enum.GetValues<WorkflowAspectRatio>(), v => v.ToPromptToken(), token, out value);
+
+    private static bool TryParseToken<T>(IEnumerable<T> values, Func<T, string> toToken, string token, out T value) where T : struct
+    {
+        foreach (var candidate in values)
+        {
+            if (!string.Equals(toToken(candidate), token, StringComparison.OrdinalIgnoreCase)) continue;
+            value = candidate;
+            return true;
+        }
+        value = default;
+        return false;
+    }
+
     /// <summary>Renders a camera motion phrase the way the base guide's examples do,
     /// e.g. "The camera pushes in with small amplitude at slow speed."</summary>
     public static string ToMotionSentence(CameraMotion motion, CameraAmplitude? amplitude, CameraSpeed? speed)

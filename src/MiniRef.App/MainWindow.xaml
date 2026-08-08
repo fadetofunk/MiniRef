@@ -48,6 +48,9 @@
                 <Button Content="Export ComfyUI Workflow..." Padding="12,4" Margin="8,0,0,0"
                         Background="#4A7A4A" Foreground="White" FontWeight="Bold"
                         Command="{Binding ExportComfyWorkflowCommand}"/>
+                <Button Content="Import ComfyUI Workflow..." Padding="12,4" Margin="8,0,0,0"
+                        Command="{Binding ImportComfyWorkflowCommand}"
+                        ToolTip="Reconstruct a project from a workflow this tool previously exported. Opens as a new, unsaved project -- best-effort, since it reads the prompt text and node titles back rather than a dedicated round-trip format."/>
                 <Button Content="Settings..." Padding="10,4" Margin="8,0,0,0"
                         Command="{Binding OpenSettingsCommand}"/>
             </StackPanel>

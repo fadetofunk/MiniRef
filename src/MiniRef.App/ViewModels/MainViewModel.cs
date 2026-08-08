@@ -23,6 +23,7 @@ public partial class MainViewModel : ObservableObject
     private static readonly Guid VideoDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a03");
     private static readonly Guid ProjectDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a04");
     private static readonly Guid ComfyExportDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a05");
+    private static readonly Guid ComfyImportDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a06");
 
     [ObservableProperty] private SceneProject project = new();
     [ObservableProperty] private string? currentFilePath;
@@ -278,6 +279,79 @@ public partial class MainViewModel : ObservableObject
             "Video nodes use VHS_LoadVideoPath (ComfyUI-VideoHelperSuite) -- make sure that custom node pack " +
             "is installed, or those nodes won't resolve.",
             "Export ComfyUI Workflow", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    /// <summary>Reconstructs a project from a ComfyUI workflow this tool previously exported --
+    /// best-effort, since it's reading the composed prompt text and node titles back rather than
+    /// any dedicated round-trip format. Always lands as a new, unsaved project; never overwrites
+    /// whatever's open.</summary>
+    [RelayCommand]
+    private void ImportComfyWorkflow()
+    {
+        var root = Settings.ComfyUiRootFolder;
+        var hasRoot = !string.IsNullOrWhiteSpace(root) && Directory.Exists(root);
+
+        var dialog = new OpenFileDialog
+        {
+            Filter = "ComfyUI workflow (*.json)|*.json|All files (*.*)|*.*",
+            ClientGuid = ComfyImportDialogGuid
+        };
+        var workflowsFolder = hasRoot ? Path.Combine(root, "user", "default", "workflows") : null;
+        if (workflowsFolder is not null && Directory.Exists(workflowsFolder))
+            dialog.InitialDirectory = workflowsFolder;
+        else if (hasRoot)
+            dialog.InitialDirectory = root;
+
+        if (dialog.ShowDialog() != true) return;
+
+        string workflowJson;
+        try
+        {
+            workflowJson = File.ReadAllText(dialog.FileName);
+        }
+        catch (IOException ex)
+        {
+            MessageBox.Show($"Couldn't read that file:\n{ex.Message}", "Import ComfyUI Workflow", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        SceneProject imported;
+        try
+        {
+            imported = ComfyWorkflowImporter.Import(workflowJson, hasRoot ? Path.Combine(root, "input") : null);
+        }
+        catch (InvalidDataException ex)
+        {
+            MessageBox.Show(
+                $"Couldn't import that workflow:\n{ex.Message}\n\nImport only works on a workflow this tool itself exported.",
+                "Import ComfyUI Workflow", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        imported.Name = GuessProjectName(dialog.FileName);
+        Project = imported;
+        CurrentFilePath = null;
+
+        MessageBox.Show(
+            "Workflow imported as a new project. This is a best-effort reconstruction from the exported prompt text " +
+            "and node titles, not a dedicated round-trip format -- a few UI-only details (subject classification, and " +
+            "task type checkboxes if the summary was left blank when it was exported) don't carry over and are left " +
+            "at their defaults. Double-check the result before continuing.",
+            "Import ComfyUI Workflow", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    /// <summary>Undoes the filename shape Export leaves behind (SanitizeFileName'd project name,
+    /// optionally with a "_comfy_workflow" or numeric collision suffix) to recover a reasonable
+    /// starting project name -- project.Name itself never makes it into the exported workflow.</summary>
+    private static string GuessProjectName(string workflowFilePath)
+    {
+        var name = Path.GetFileNameWithoutExtension(workflowFilePath);
+
+        const string exportSuffix = "_comfy_workflow";
+        if (name.EndsWith(exportSuffix, StringComparison.OrdinalIgnoreCase))
+            name = name[..^exportSuffix.Length];
+
+        return string.IsNullOrWhiteSpace(name) ? "Untitled Scene" : name;
     }
 
     private static string? TryLoadTemplate()
