@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace MiniRef.Core.Models;
@@ -21,4 +22,9 @@ public partial class Subject : ObservableObject
 
     [ObservableProperty] private VisualRetentionType? retention;
     [ObservableProperty] private string retentionNote = "";
+
+    /// <summary>Transient UI state -- whether the card is expanded in the Cast &amp; Setting
+    /// list. Not persisted.</summary>
+    [JsonIgnore]
+    [ObservableProperty] private bool isExpanded = true;
 }

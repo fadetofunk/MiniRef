@@ -13,12 +13,27 @@
         <conv:NullToVisibilityConverter x:Key="NullToVis"/>
         <conv:NullToBoolConverter x:Key="NullToBool"/>
         <conv:PathToFileNameConverter x:Key="PathToFileName"/>
+        <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
     </UserControl.Resources>
 
     <Border BorderBrush="#3A3A3A" BorderThickness="1" CornerRadius="4" Margin="0,0,0,8" Padding="8"
             Background="#232323">
         <StackPanel>
-            <DockPanel LastChildFill="False">
+            <DockPanel LastChildFill="True">
+                <Button DockPanel.Dock="Left" Width="20" Padding="0" Margin="0,0,6,0"
+                        Click="ToggleExpand_Click" ToolTip="Expand/collapse card">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Content" Value="▶"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                                    <Setter Property="Content" Value="▼"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
                 <TextBlock DockPanel.Dock="Left" FontWeight="Bold" Foreground="#8AB4F8"
                            VerticalAlignment="Center" Margin="0,0,8,0"
                            Text="{Binding DisplayNumber, ElementName=Root, StringFormat='&lt;Subject {0}&gt;'}"/>
@@ -28,98 +43,103 @@
                         Click="MoveDown_Click" ToolTip="Move down"/>
                 <Button DockPanel.Dock="Right" Content="↑" Width="22" Padding="0" Margin="0,0,4,0"
                         Click="MoveUp_Click" ToolTip="Move up"/>
+                <TextBlock VerticalAlignment="Center" Foreground="#999999" TextTrimming="CharacterEllipsis"
+                           Visibility="{Binding IsExpanded, Converter={StaticResource InverseBoolToVisibility}}"
+                           Text="{Binding Name}"/>
             </DockPanel>
 
-            <ComboBox Margin="0,6,0,0"
-                      ItemsSource="{x:Static app:EnumSources.Classifications}"
-                      SelectedItem="{Binding Classification}">
-                <ComboBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" Foreground="Black"/>
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
-            </ComboBox>
-
-            <TextBox Margin="0,6,0,0" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
-                     SpellCheck.IsEnabled="False"
-                     ToolTip="Name (for your reference)"/>
-
-            <TextBox Margin="0,6,0,0" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}"
-                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="50" MaxHeight="120"
-                     VerticalScrollBarVisibility="Auto"
-                     ToolTip="Appearance / description"/>
-
-            <TextBlock Text="Pictures" Margin="0,8,0,2" FontSize="11" Foreground="Gray"/>
-            <ItemsControl ItemsSource="{Binding Pictures}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate DataType="{x:Type models:PictureRef}">
-                        <Border Margin="0,2,0,0" Padding="4" Background="#1C1C1C" CornerRadius="3">
-                            <StackPanel>
-                                <DockPanel LastChildFill="False">
-                                    <TextBlock DockPanel.Dock="Left" FontWeight="Bold" Foreground="#8AB4F8"
-                                               VerticalAlignment="Center" Margin="0,0,6,0"
-                                               Text="{Binding DisplayNumber, StringFormat='&lt;Picture {0}&gt;'}"/>
-                                    <Button DockPanel.Dock="Right" Content="✕" Width="20" Padding="0"
-                                            Click="RemovePicture_Click"/>
-                                </DockPanel>
-                                <TextBox Margin="0,4,0,0" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}"
-                                         ToolTip="picture label (e.g. front view)"/>
-                                <DockPanel Margin="0,4,0,0" LastChildFill="True">
-                                    <Button DockPanel.Dock="Left" Content="Browse..." Padding="6,2"
-                                            Click="BrowsePicture_Click"/>
-                                    <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" FontSize="10"
-                                               Foreground="Gray" TextTrimming="CharacterEllipsis"
-                                               ToolTip="{Binding FilePath}"
-                                               Text="{Binding FilePath, Converter={StaticResource PathToFileName}}"/>
-                                </DockPanel>
-                            </StackPanel>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <Button Content="+ Add Picture" HorizontalAlignment="Left" Margin="0,4,0,0"
-                    Click="AddPicture_Click"/>
-
-            <CheckBox Content="Has voice / audio reference" Margin="0,10,0,0"
-                      IsChecked="{Binding Audio, Converter={StaticResource NullToBool}, Mode=OneWay}"
-                      Click="ToggleAudio_Click"/>
-
-            <StackPanel Visibility="{Binding Audio, Converter={StaticResource NullToVis}}" Margin="12,4,0,0">
-                <TextBlock FontWeight="Bold" Foreground="#8AB4F8"
-                           Text="{Binding Audio.DisplayNumber, StringFormat='&lt;Audio {0}&gt;'}"/>
-                <TextBox Margin="0,4,0,0" Text="{Binding Audio.Description, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="voice/audio note (optional)"/>
-                <DockPanel Margin="0,4,0,0" LastChildFill="True">
-                    <Button DockPanel.Dock="Left" Content="Browse..." Padding="6,2" Click="BrowseAudio_Click"/>
-                    <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" FontSize="10"
-                               Foreground="Gray" TextTrimming="CharacterEllipsis"
-                               ToolTip="{Binding Audio.FilePath}"
-                               Text="{Binding Audio.FilePath, Converter={StaticResource PathToFileName}}"/>
-                </DockPanel>
-                <ComboBox Margin="0,4,0,0"
-                          ItemsSource="{x:Static app:EnumSources.AudioRetentionChoices}"
-                          SelectedItem="{Binding Audio.Retention}">
+            <StackPanel Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
+                <ComboBox Margin="0,6,0,0"
+                          ItemsSource="{x:Static app:EnumSources.Classifications}"
+                          SelectedItem="{Binding Classification}">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" Foreground="Black"/>
                         </DataTemplate>
                     </ComboBox.ItemTemplate>
                 </ComboBox>
-                <TextBox Margin="0,4,0,0" Text="{Binding Audio.RetentionNote, UpdateSourceTrigger=PropertyChanged}"
-                         ToolTip="audio retention note"/>
-            </StackPanel>
 
-            <TextBlock Text="Retention (visual)" Margin="0,10,0,2" FontSize="11" Foreground="Gray"/>
-            <ComboBox ItemsSource="{x:Static app:EnumSources.VisualRetentionChoices}"
-                      SelectedItem="{Binding Retention}">
-                <ComboBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" Foreground="Black"/>
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
-            </ComboBox>
-            <TextBox Margin="0,4,0,0" Text="{Binding RetentionNote, UpdateSourceTrigger=PropertyChanged}"
-                     ToolTip="retention note (e.g. what's preserved)"/>
+                <TextBox Margin="0,6,0,0" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                         SpellCheck.IsEnabled="False"
+                         ToolTip="Name (for your reference)"/>
+
+                <TextBox Margin="0,6,0,0" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}"
+                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="50" MaxHeight="120"
+                         VerticalScrollBarVisibility="Auto"
+                         ToolTip="Appearance / description"/>
+
+                <TextBlock Text="Pictures" Margin="0,8,0,2" FontSize="11" Foreground="Gray"/>
+                <ItemsControl ItemsSource="{Binding Pictures}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type models:PictureRef}">
+                            <Border Margin="0,2,0,0" Padding="4" Background="#1C1C1C" CornerRadius="3">
+                                <StackPanel>
+                                    <DockPanel LastChildFill="False">
+                                        <TextBlock DockPanel.Dock="Left" FontWeight="Bold" Foreground="#8AB4F8"
+                                                   VerticalAlignment="Center" Margin="0,0,6,0"
+                                                   Text="{Binding DisplayNumber, StringFormat='&lt;Picture {0}&gt;'}"/>
+                                        <Button DockPanel.Dock="Right" Content="✕" Width="20" Padding="0"
+                                                Click="RemovePicture_Click"/>
+                                    </DockPanel>
+                                    <TextBox Margin="0,4,0,0" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="picture label (e.g. front view)"/>
+                                    <DockPanel Margin="0,4,0,0" LastChildFill="True">
+                                        <Button DockPanel.Dock="Left" Content="Browse..." Padding="6,2"
+                                                Click="BrowsePicture_Click"/>
+                                        <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" FontSize="10"
+                                                   Foreground="Gray" TextTrimming="CharacterEllipsis"
+                                                   ToolTip="{Binding FilePath}"
+                                                   Text="{Binding FilePath, Converter={StaticResource PathToFileName}}"/>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Content="+ Add Picture" HorizontalAlignment="Left" Margin="0,4,0,0"
+                        Click="AddPicture_Click"/>
+
+                <CheckBox Content="Has voice / audio reference" Margin="0,10,0,0"
+                          IsChecked="{Binding Audio, Converter={StaticResource NullToBool}, Mode=OneWay}"
+                          Click="ToggleAudio_Click"/>
+
+                <StackPanel Visibility="{Binding Audio, Converter={StaticResource NullToVis}}" Margin="12,4,0,0">
+                    <TextBlock FontWeight="Bold" Foreground="#8AB4F8"
+                               Text="{Binding Audio.DisplayNumber, StringFormat='&lt;Audio {0}&gt;'}"/>
+                    <TextBox Margin="0,4,0,0" Text="{Binding Audio.Description, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="voice/audio note (optional)"/>
+                    <DockPanel Margin="0,4,0,0" LastChildFill="True">
+                        <Button DockPanel.Dock="Left" Content="Browse..." Padding="6,2" Click="BrowseAudio_Click"/>
+                        <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" FontSize="10"
+                                   Foreground="Gray" TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding Audio.FilePath}"
+                                   Text="{Binding Audio.FilePath, Converter={StaticResource PathToFileName}}"/>
+                    </DockPanel>
+                    <ComboBox Margin="0,4,0,0"
+                              ItemsSource="{x:Static app:EnumSources.AudioRetentionChoices}"
+                              SelectedItem="{Binding Audio.Retention}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" Foreground="Black"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBox Margin="0,4,0,0" Text="{Binding Audio.RetentionNote, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="audio retention note"/>
+                </StackPanel>
+
+                <TextBlock Text="Retention (visual)" Margin="0,10,0,2" FontSize="11" Foreground="Gray"/>
+                <ComboBox ItemsSource="{x:Static app:EnumSources.VisualRetentionChoices}"
+                          SelectedItem="{Binding Retention}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}" Foreground="Black"/>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBox Margin="0,4,0,0" Text="{Binding RetentionNote, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="retention note (e.g. what's preserved)"/>
+            </StackPanel>
         </StackPanel>
     </Border>
 </UserControl>

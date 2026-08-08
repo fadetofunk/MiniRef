@@ -28,6 +28,11 @@ public partial class SubjectEditor : UserControl
     private MainViewModel? MainViewModel =>
         Application.Current.MainWindow?.DataContext as MainViewModel;
 
+    private void ToggleExpand_Click(object sender, RoutedEventArgs e)
+    {
+        if (Subject is { } s) s.IsExpanded = !s.IsExpanded;
+    }
+
     private void Remove_Click(object sender, RoutedEventArgs e)
     {
         if (Subject is { } s) MainViewModel?.RemoveSubjectCommand.Execute(s);
