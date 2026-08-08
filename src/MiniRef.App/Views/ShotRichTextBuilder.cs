@@ -83,6 +83,49 @@ public static class ShotRichTextBuilder
         return sb.ToString();
     }
 
+    /// <summary>Same idea as <see cref="Serialize"/> but for just a selection within the document,
+    /// e.g. the text a Ctrl+C is about to put on the clipboard -- reads each selected chip's raw
+    /// tag rather than letting WPF's default copy reduce it to an opaque placeholder character,
+    /// so copying a chip from one shot and pasting it into another (via InsertAt) reconstructs the
+    /// same chip instead of losing it.</summary>
+    public static string SerializeRange(TextRange range)
+    {
+        if (range.IsEmpty) return "";
+
+        // Shots keep everything in one Paragraph (see the Enter-key handling in ShotCard), so a
+        // selection spanning more than one -- only possible if pasted plain text split it, per
+        // Serialize's own comment above -- falls back to WPF's plain TextRange.Text rather than
+        // walking multiple paragraphs; a rare, already-degraded edge case either way.
+        if (range.Start.Paragraph is not { } paragraph || range.End.Paragraph != paragraph)
+            return range.Text;
+
+        var sb = new StringBuilder();
+        foreach (var inline in paragraph.Inlines)
+        {
+            if (inline.ElementEnd.CompareTo(range.Start) <= 0) continue;
+            if (inline.ElementStart.CompareTo(range.End) >= 0) break;
+
+            switch (inline)
+            {
+                case Run run:
+                    var clipped = new TextRange(Max(run.ContentStart, range.Start), Min(run.ContentEnd, range.End));
+                    sb.Append(clipped.Text);
+                    break;
+                case LineBreak:
+                    sb.Append('\n');
+                    break;
+                case InlineUIContainer { Child: Border { Tag: string rawTag } }:
+                    sb.Append(rawTag);
+                    break;
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static TextPointer Max(TextPointer a, TextPointer b) => a.CompareTo(b) >= 0 ? a : b;
+    private static TextPointer Min(TextPointer a, TextPointer b) => a.CompareTo(b) <= 0 ? a : b;
+
     private static void AppendInlines(StringBuilder sb, IEnumerable<Inline> inlines)
     {
         foreach (var inline in inlines)

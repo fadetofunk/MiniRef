@@ -215,20 +215,31 @@ public partial class ShotCard : UserControl
         EditingCommands.EnterLineBreak.Execute(null, ShotTextBox);
     }
 
-    /// <summary>Forces paste to plain text so clipboard formatting (e.g. copying from a browser
-    /// or Word) can't smuggle in Bold/Span/Hyperlink inlines that ShotRichTextBuilder.Serialize
-    /// doesn't know how to round-trip.</summary>
+    /// <summary>Copies the selection's raw tag text (e.g. "&lt;Subject 1&gt;") onto the clipboard
+    /// instead of letting WPF's default copy reduce each chip to an opaque placeholder character --
+    /// that placeholder has no way back to the tag it stood for, which is what made a chip vanish
+    /// into plain, uncolored nothing when pasted into another shot.</summary>
+    private void ShotTextBox_Copying(object sender, DataObjectCopyingEventArgs e)
+    {
+        var text = ShotRichTextBuilder.SerializeRange(ShotTextBox.Selection);
+        e.DataObject.SetData(DataFormats.UnicodeText, text);
+        e.DataObject.SetData(DataFormats.Text, text);
+    }
+
+    /// <summary>Routes pasted text through InsertAtCaret -- the same chip-building path the Insert
+    /// buttons use -- instead of WPF's default paste, so any &lt;Subject N&gt;/&lt;Picture N&gt;/
+    /// &lt;Audio N&gt;/&lt;Video N&gt; tags in the pasted text (e.g. copied from another shot, now
+    /// that ShotTextBox_Copying preserves them) render as chips immediately. This also blocks
+    /// clipboard formatting from a browser or Word from smuggling in Bold/Span/Hyperlink inlines
+    /// ShotRichTextBuilder.Serialize doesn't know how to round-trip, since only plain text is ever
+    /// read from the clipboard here.</summary>
     private void ShotTextBox_Pasting(object sender, DataObjectPastingEventArgs e)
     {
-        if (!e.DataObject.GetDataPresent(DataFormats.UnicodeText))
-        {
-            e.CancelCommand();
-            return;
-        }
+        e.CancelCommand();
+        if (!e.DataObject.GetDataPresent(DataFormats.UnicodeText)) return;
 
         var text = (string)e.DataObject.GetData(DataFormats.UnicodeText);
-        e.DataObject = new DataObject(DataFormats.UnicodeText, text);
-        e.FormatToApply = DataFormats.UnicodeText;
+        InsertAtCaret(text);
     }
 
     private void Chip_Click(object sender, RoutedEventArgs e)

@@ -67,6 +67,7 @@
                              AcceptsTab="False"
                              TextChanged="ShotTextBox_TextChanged"
                              PreviewKeyDown="ShotTextBox_PreviewKeyDown"
+                             DataObject.Copying="ShotTextBox_Copying"
                              DataObject.Pasting="ShotTextBox_Pasting">
                     <RichTextBox.ToolTip>
                         <TextBlock MaxWidth="380" TextWrapping="Wrap"
