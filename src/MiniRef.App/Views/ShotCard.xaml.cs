@@ -3,7 +3,8 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Threading;
+using System.Windows.Documents;
+using System.Windows.Input;
 using MiniRef.App.ViewModels;
 using MiniRef.Core.Models;
 using MiniRef.Core.Services;
@@ -51,9 +52,15 @@ public partial class ShotCard : UserControl
     private readonly HashSet<Subject> _subscribed = [];
     private readonly HashSet<VideoRef> _subscribedVideos = [];
 
+    /// <summary>Guards RebuildShotDocument's Document replacement from being read back by
+    /// ShotTextBox_TextChanged as if it were a user edit -- harmless either way since it would
+    /// just re-serialize to the same Shot.Text, but this skips that redundant work.</summary>
+    private bool _suppressTextChanged;
+
     public ShotCard()
     {
         InitializeComponent();
+        DataContextChanged += (_, _) => RebuildShotDocument();
         Unloaded += (_, _) => { UnsubscribeAll(); UnsubscribeAllVideos(); };
     }
 
@@ -75,6 +82,7 @@ public partial class ShotCard : UserControl
         }
 
         card.RebuildChips();
+        card.RebuildShotDocument();
     }
 
     private static void OnSourceVideosChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -91,6 +99,7 @@ public partial class ShotCard : UserControl
         }
 
         card.RebuildChips();
+        card.RebuildShotDocument();
     }
 
     private void Subjects_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -100,6 +109,7 @@ public partial class ShotCard : UserControl
         if (e.NewItems is not null)
             foreach (Subject s in e.NewItems) Subscribe(s);
         RebuildChips();
+        RebuildShotDocument();
     }
 
     private void Videos_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -109,6 +119,7 @@ public partial class ShotCard : UserControl
         if (e.NewItems is not null)
             foreach (VideoRef v in e.NewItems) SubscribeVideo(v);
         RebuildChips();
+        RebuildShotDocument();
     }
 
     private void Subscribe(Subject s)
@@ -147,8 +158,17 @@ public partial class ShotCard : UserControl
         foreach (var v in _subscribedVideos.ToList()) UnsubscribeVideo(v);
     }
 
-    private void Subject_PropertyChanged(object? sender, PropertyChangedEventArgs e) => RebuildChips();
-    private void PicturesOrDialogue_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => RebuildChips();
+    private void Subject_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        RebuildChips();
+        RebuildShotDocument();
+    }
+
+    private void PicturesOrDialogue_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        RebuildChips();
+        RebuildShotDocument();
+    }
 
     private void RebuildChips()
     {
@@ -156,6 +176,59 @@ public partial class ShotCard : UserControl
         if (AllSubjects is null) return;
         foreach (var chip in TagChipBuilder.Build(AllSubjects, SourceVideos))
             Chips.Add(chip);
+    }
+
+    /// <summary>Rebuilds the shot text box's FlowDocument from Shot.Text, chipifying reference
+    /// tags. Called whenever the underlying data a chip's label depends on changes from outside
+    /// this control (a different Shot bound in, a subject renamed, pictures/videos added or
+    /// removed) -- never while the user is typing in this box, since ShotTextBox_TextChanged
+    /// only pushes the live document into Shot.Text and never triggers a rebuild of its own.</summary>
+    private void RebuildShotDocument()
+    {
+        if (Shot is not { } shot) return;
+
+        _suppressTextChanged = true;
+        try
+        {
+            ShotTextBox.Document = ShotRichTextBuilder.BuildDocument(shot.Text, AllSubjects ?? [], SourceVideos ?? []);
+        }
+        finally
+        {
+            _suppressTextChanged = false;
+        }
+    }
+
+    private void ShotTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_suppressTextChanged) return;
+        if (Shot is not { } shot) return;
+        shot.Text = ShotRichTextBuilder.Serialize(ShotTextBox.Document);
+    }
+
+    /// <summary>Enter inserts a soft line break instead of WPF's default new-Paragraph behavior,
+    /// keeping the whole shot as one Paragraph so LineBreak &lt;-&gt; '\n' stays a clean 1:1 mapping
+    /// in ShotRichTextBuilder rather than juggling multiple Paragraph blocks for ordinary typing.</summary>
+    private void ShotTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        EditingCommands.EnterLineBreak.Execute(null, ShotTextBox);
+    }
+
+    /// <summary>Forces paste to plain text so clipboard formatting (e.g. copying from a browser
+    /// or Word) can't smuggle in Bold/Span/Hyperlink inlines that ShotRichTextBuilder.Serialize
+    /// doesn't know how to round-trip.</summary>
+    private void ShotTextBox_Pasting(object sender, DataObjectPastingEventArgs e)
+    {
+        if (!e.DataObject.GetDataPresent(DataFormats.UnicodeText))
+        {
+            e.CancelCommand();
+            return;
+        }
+
+        var text = (string)e.DataObject.GetData(DataFormats.UnicodeText);
+        e.DataObject = new DataObject(DataFormats.UnicodeText, text);
+        e.FormatToApply = DataFormats.UnicodeText;
     }
 
     private void Chip_Click(object sender, RoutedEventArgs e)
@@ -221,23 +294,22 @@ public partial class ShotCard : UserControl
         OnScreenTextBox.Clear();
     }
 
-    /// <summary>Inserts at the caret as before, except when text is selected in the shot box --
-    /// then the selection is replaced instead, so e.g. selecting a placeholder word and clicking
-    /// a reference chip swaps it in rather than leaving the placeholder behind.</summary>
+    /// <summary>Inserts at the caret, chipifying any reference tags <paramref name="text"/>
+    /// contains (whole chip inserts, or a dialogue/silent line that starts with one). Replaces
+    /// the current selection first if there is one, so e.g. selecting a placeholder word and
+    /// clicking a reference chip swaps it in rather than leaving the placeholder behind. The
+    /// resulting Shot.Text update happens via ShotTextBox_TextChanged, not here.</summary>
     private void InsertAtCaret(string text)
     {
-        if (Shot is not { } shot) return;
+        if (Shot is null) return;
 
-        var start = Math.Clamp(ShotTextBox.SelectionStart, 0, shot.Text.Length);
-        var length = Math.Min(ShotTextBox.SelectionLength, shot.Text.Length - start);
+        var selection = ShotTextBox.Selection;
+        if (!selection.IsEmpty)
+            selection.Text = "";
 
-        shot.Text = shot.Text.Remove(start, length).Insert(start, text);
-
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            ShotTextBox.CaretIndex = Math.Min(start + text.Length, shot.Text.Length);
-            ShotTextBox.Focus();
-        }), DispatcherPriority.Background);
+        var end = ShotRichTextBuilder.InsertAt(ShotTextBox.CaretPosition, text, AllSubjects ?? [], SourceVideos ?? []);
+        ShotTextBox.CaretPosition = end;
+        ShotTextBox.Focus();
     }
 
     private void Remove_Click(object sender, RoutedEventArgs e)

@@ -60,11 +60,13 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <TextBox x:Name="ShotTextBox" Margin="0,4,0,0"
-                     Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
-                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="90"
-                     VerticalScrollBarVisibility="Auto"
-                     ToolTip="Shot narrative -- action, camera, sound, dialogue in playback order"/>
+            <RichTextBox x:Name="ShotTextBox" Margin="0,4,0,0" MinHeight="90"
+                         VerticalScrollBarVisibility="Auto"
+                         AcceptsTab="False"
+                         TextChanged="ShotTextBox_TextChanged"
+                         PreviewKeyDown="ShotTextBox_PreviewKeyDown"
+                         DataObject.Pasting="ShotTextBox_Pasting"
+                         ToolTip="Shot narrative -- action, camera, sound, dialogue in playback order. Subject/Picture/Audio/Video references show as colored chips."/>
 
             <Expander Header="Camera motion" Margin="0,8,0,0" Foreground="Gray">
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">

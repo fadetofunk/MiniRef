@@ -20,6 +20,15 @@
             <Setter Property="SpellCheck.IsEnabled" Value="True"/>
         </Style>
 
+        <Style TargetType="RichTextBox">
+            <Setter Property="Background" Value="{StaticResource PanelBg}"/>
+            <Setter Property="Foreground" Value="{StaticResource PanelFg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}"/>
+            <Setter Property="CaretBrush" Value="White"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="SpellCheck.IsEnabled" Value="True"/>
+        </Style>
+
         <Style TargetType="ComboBox">
             <Setter Property="Background" Value="{StaticResource PanelBg}"/>
             <Setter Property="Foreground" Value="{StaticResource PanelFg}"/>
