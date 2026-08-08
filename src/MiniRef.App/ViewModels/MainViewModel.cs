@@ -86,7 +86,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void AddSubject() => Project.Subjects.Add(new Subject { Name = "New Subject" });
+    private void AddSubject() => Project.Subjects.Add(new Subject());
 
     [RelayCommand]
     private void RemoveSubject(Subject subject) => Project.Subjects.Remove(subject);
