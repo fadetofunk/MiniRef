@@ -9,6 +9,7 @@
              d:DesignWidth="480">
     <UserControl.Resources>
         <conv:EnumDisplayConverter x:Key="EnumDisplay"/>
+        <conv:BlankStringToVisibilityConverter x:Key="BlankStringToVisibility"/>
     </UserControl.Resources>
 
     <Border BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,10" Padding="10"
@@ -60,13 +61,23 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <RichTextBox x:Name="ShotTextBox" Margin="0,4,0,0" MinHeight="90"
-                         VerticalScrollBarVisibility="Auto"
-                         AcceptsTab="False"
-                         TextChanged="ShotTextBox_TextChanged"
-                         PreviewKeyDown="ShotTextBox_PreviewKeyDown"
-                         DataObject.Pasting="ShotTextBox_Pasting"
-                         ToolTip="Shot narrative -- action, camera, sound, dialogue in playback order. Subject/Picture/Audio/Video references show as colored chips."/>
+            <Grid Margin="0,4,0,0">
+                <RichTextBox x:Name="ShotTextBox" MinHeight="90"
+                             VerticalScrollBarVisibility="Auto"
+                             AcceptsTab="False"
+                             TextChanged="ShotTextBox_TextChanged"
+                             PreviewKeyDown="ShotTextBox_PreviewKeyDown"
+                             DataObject.Pasting="ShotTextBox_Pasting">
+                    <RichTextBox.ToolTip>
+                        <TextBlock MaxWidth="380" TextWrapping="Wrap"
+                                   Text="Shot narrative in playback order: action, camera movement, sound, dialogue. Click a chip above (or type &lt;Subject N&gt; / &lt;Picture N&gt; / &lt;Audio N&gt; / &lt;Video N&gt;) to reference something.&#10;&#10;Camera: motion + amplitude + speed, e.g. &quot;The camera pushes in with small amplitude at slow speed toward the folded letter.&quot;&#10;&#10;Dialogue: use the Dialogue line tool below, which inserts &quot;&lt;Subject N&gt; (S1) says, &lt;d&gt;[English] text&lt;/d&gt;&quot; for you.&#10;&#10;On-screen text: quoted verbatim, e.g. a sign reading &quot;OPEN&quot;."/>
+                    </RichTextBox.ToolTip>
+                </RichTextBox>
+                <TextBlock Text="Action, camera, sound, and dialogue, in the order they happen. Insert references with the chips above."
+                           IsHitTestVisible="False" TextWrapping="Wrap" FontStyle="Italic" Opacity="0.65"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="8,6,8,0" VerticalAlignment="Top"
+                           Visibility="{Binding Text, Converter={StaticResource BlankStringToVisibility}}"/>
+            </Grid>
 
             <Expander Header="Camera motion" Margin="0,8,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}">
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
@@ -103,12 +114,33 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
-                        <TextBox x:Name="LanguageBox" Width="80" Margin="4,0,0,0" Text="English" SpellCheck.IsEnabled="False"/>
+                        <TextBox x:Name="LanguageBox" Width="80" Margin="4,0,0,0" Text="English" SpellCheck.IsEnabled="False"
+                                 ToolTip="Language of the dialogue line, e.g. English, Mandarin. Kept as-is inside the &lt;d&gt;[language] ...&lt;/d&gt; tag."/>
                         <CheckBox x:Name="SilentCheckBox" Content="Silent" Margin="8,0,0,0" VerticalAlignment="Center"
                                   Checked="SilentCheckBox_CheckedChanged" Unchecked="SilentCheckBox_CheckedChanged"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                        <TextBox x:Name="DialogueTextBox" Width="260" ToolTip="Spoken line"/>
+                        <Grid Width="260">
+                            <TextBox x:Name="DialogueTextBox">
+                                <TextBox.ToolTip>
+                                    <TextBlock MaxWidth="280" TextWrapping="Wrap"
+                                               Text="The words this speaker says. Gets wrapped as &lt;d&gt;[language] ...&lt;/d&gt; and inserted at the caret.&#10;Example: &quot;Last summer, I went to my grandfather's house.&quot;"/>
+                                </TextBox.ToolTip>
+                            </TextBox>
+                            <TextBlock Text="Spoken line" IsHitTestVisible="False" FontStyle="Italic" Opacity="0.65"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="6,0,0,0" VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=DialogueTextBox}" Value="">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
                         <Button Content="Insert" Margin="6,0,0,0" Click="InsertDialogue_Click"/>
                     </StackPanel>
                 </StackPanel>
@@ -116,7 +148,27 @@
 
             <Expander Header="On-screen text" Margin="0,6,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}">
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                    <TextBox x:Name="OnScreenTextBox" Width="260"/>
+                    <Grid Width="260">
+                        <TextBox x:Name="OnScreenTextBox">
+                            <TextBox.ToolTip>
+                                <TextBlock MaxWidth="280" TextWrapping="Wrap"
+                                           Text="Visible text in the shot -- signs, captions, labels. Gets inserted in quotes at the caret.&#10;Example: a neon sign reading &quot;OPEN&quot;."/>
+                            </TextBox.ToolTip>
+                        </TextBox>
+                        <TextBlock Text="On-screen text, e.g. &quot;OPEN&quot;" IsHitTestVisible="False" FontStyle="Italic" Opacity="0.65"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="6,0,0,0" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Text, ElementName=OnScreenTextBox}" Value="">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
                     <Button Content="Insert" Margin="6,0,0,0" Click="InsertOnScreenText_Click"/>
                 </StackPanel>
             </Expander>
