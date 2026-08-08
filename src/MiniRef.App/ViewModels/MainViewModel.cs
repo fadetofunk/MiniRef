@@ -13,6 +13,17 @@ public partial class MainViewModel : ObservableObject
 {
     private const string ComfyTemplateRelativePath = "Assets/video_minimax_h3_r2v.template.json";
 
+    // Windows' common file dialog persists its own "last visited folder" per ClientGuid, and that
+    // persisted folder wins over InitialDirectory after the first use. Without a distinct ClientGuid
+    // per dialog purpose, every OpenFileDialog/SaveFileDialog in the app shares one OS-level "last
+    // folder" bucket, which made the separate LastPictureFolder/LastAudioFolder/etc. settings below
+    // appear to bleed into each other.
+    private static readonly Guid PictureDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a01");
+    private static readonly Guid AudioDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a02");
+    private static readonly Guid VideoDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a03");
+    private static readonly Guid ProjectDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a04");
+    private static readonly Guid ComfyExportDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a05");
+
     [ObservableProperty] private SceneProject project = new();
     [ObservableProperty] private string? currentFilePath;
     [ObservableProperty] private AppSettings settings = SettingsStore.Load();
@@ -102,7 +113,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void BrowsePictureFile(PictureRef picture)
     {
-        var dialog = new OpenFileDialog { Filter = "Image files|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif|All files|*.*" };
+        var dialog = new OpenFileDialog { Filter = "Image files|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif|All files|*.*", ClientGuid = PictureDialogGuid };
         if (Directory.Exists(Settings.LastPictureFolder)) dialog.InitialDirectory = Settings.LastPictureFolder;
         if (dialog.ShowDialog() != true) return;
 
@@ -113,7 +124,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void BrowseAudioFile(AudioRef audio)
     {
-        var dialog = new OpenFileDialog { Filter = "Audio files|*.mp3;*.wav;*.flac;*.ogg;*.m4a|All files|*.*" };
+        var dialog = new OpenFileDialog { Filter = "Audio files|*.mp3;*.wav;*.flac;*.ogg;*.m4a|All files|*.*", ClientGuid = AudioDialogGuid };
         if (Directory.Exists(Settings.LastAudioFolder)) dialog.InitialDirectory = Settings.LastAudioFolder;
         if (dialog.ShowDialog() != true) return;
 
@@ -124,7 +135,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void BrowseVideoFile(VideoRef video)
     {
-        var dialog = new OpenFileDialog { Filter = "Video files|*.mp4;*.mov;*.mkv;*.webm;*.avi|All files|*.*" };
+        var dialog = new OpenFileDialog { Filter = "Video files|*.mp4;*.mov;*.mkv;*.webm;*.avi|All files|*.*", ClientGuid = VideoDialogGuid };
         if (Directory.Exists(Settings.LastVideoFolder)) dialog.InitialDirectory = Settings.LastVideoFolder;
         if (dialog.ShowDialog() != true) return;
 
@@ -174,7 +185,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void OpenProject()
     {
-        var dialog = new OpenFileDialog { Filter = "MiniRef project (*.mmref.json)|*.mmref.json|All files (*.*)|*.*" };
+        var dialog = new OpenFileDialog { Filter = "MiniRef project (*.mmref.json)|*.mmref.json|All files (*.*)|*.*", ClientGuid = ProjectDialogGuid };
         if (Directory.Exists(Settings.LastProjectFolder)) dialog.InitialDirectory = Settings.LastProjectFolder;
         if (dialog.ShowDialog() != true) return;
 
@@ -201,12 +212,15 @@ public partial class MainViewModel : ObservableObject
         var dialog = new SaveFileDialog
         {
             Filter = "MiniRef project (*.mmref.json)|*.mmref.json|All files (*.*)|*.*",
-            FileName = Project.Name + ProjectStore.FileExtension
+            FileName = Project.Name + ProjectStore.FileExtension,
+            ClientGuid = ProjectDialogGuid
         };
+        if (Directory.Exists(Settings.LastProjectFolder)) dialog.InitialDirectory = Settings.LastProjectFolder;
         if (dialog.ShowDialog() != true) return;
 
         ProjectStore.Save(Project, dialog.FileName);
         CurrentFilePath = dialog.FileName;
+        RememberFolder(f => Settings.LastProjectFolder = f, dialog.FileName);
     }
 
     [RelayCommand]
@@ -245,7 +259,8 @@ public partial class MainViewModel : ObservableObject
             var dialog = new SaveFileDialog
             {
                 Filter = "ComfyUI workflow (*.json)|*.json|All files (*.*)|*.*",
-                FileName = Project.Name + "_comfy_workflow.json"
+                FileName = Project.Name + "_comfy_workflow.json",
+                ClientGuid = ComfyExportDialogGuid
             };
             if (dialog.ShowDialog() != true) return;
             outputPath = dialog.FileName;
