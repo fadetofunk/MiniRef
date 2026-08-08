@@ -31,6 +31,7 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         _settings = settings;
         RootFolderTextBox.Text = settings.ComfyUiRootFolder;
+        SaveOnExportCheckBox.IsChecked = settings.SaveOnExport;
 
         if (isFirstRun)
         {
@@ -129,6 +130,7 @@ public partial class SettingsWindow : Window
         }
 
         _settings.ComfyUiRootFolder = root;
+        _settings.SaveOnExport = SaveOnExportCheckBox.IsChecked == true;
 
         foreach (var row in _modelRows)
         {

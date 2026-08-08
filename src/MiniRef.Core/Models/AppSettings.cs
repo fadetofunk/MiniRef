@@ -15,6 +15,11 @@ public partial class AppSettings : ObservableObject
     /// whatever the bundled template ships with".</summary>
     [ObservableProperty] private Dictionary<string, string> modelOverrides = new();
 
+    /// <summary>When true, exporting a ComfyUI workflow first saves the project to its current
+    /// file (or prompts for one, same as clicking Save), so the exported json and the saved
+    /// project never drift apart.</summary>
+    [ObservableProperty] private bool saveOnExport;
+
     /// <summary>Last folder each file-browse dialog was used in, remembered per dialog type so
     /// e.g. picking a picture doesn't reset where the video browse dialog opens next time.</summary>
     [ObservableProperty] private string? lastPictureFolder;

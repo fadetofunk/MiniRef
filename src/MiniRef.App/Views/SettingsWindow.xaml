@@ -39,6 +39,9 @@
             </DockPanel>
             <TextBlock x:Name="RootValidationText" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
 
+            <CheckBox x:Name="SaveOnExportCheckBox" Content="Save project on export" Margin="0,16,0,0"
+                      ToolTip="Whenever you export a ComfyUI workflow, the project is saved first (same as clicking Save), so the exported json and the saved project never drift apart."/>
+
             <TextBlock Text="Workflow Models" FontWeight="Bold" FontSize="14" Margin="0,20,0,4"/>
             <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextFillColorSecondaryBrush}" FontSize="11" Margin="0,0,0,8"
                        Text="Overrides which model file each loader node in the exported workflow uses. Once the root folder above is set, Browse opens right in the matching models subfolder. Leave blank to keep the bundled default."/>

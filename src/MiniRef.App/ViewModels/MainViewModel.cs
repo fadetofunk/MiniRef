@@ -226,6 +226,8 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ExportComfyWorkflow()
     {
+        if (Settings.SaveOnExport) SaveProject();
+
         var templateJson = TryLoadTemplate();
         if (templateJson is null)
         {
