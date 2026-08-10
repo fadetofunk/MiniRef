@@ -355,8 +355,8 @@ public partial class MainViewModel : ObservableObject
 
         var workflowJson = ComfyWorkflowExporter.Export(
             templateJson, Project,
-            resolvePictureFilename: (_, picture) => ResolveComfyInputFilename(picture.FilePath, hasRoot ? root : null),
-            resolveAudioFilename: (_, audio) => ResolveComfyInputFilename(audio.FilePath, hasRoot ? root : null),
+            resolvePictureFilename: (_, picture) => ResolveComfyInputFilename(picture.FilePath, hasRoot ? root : null, picture.Id),
+            resolveAudioFilename: (_, audio) => ResolveComfyInputFilename(audio.FilePath, hasRoot ? root : null, audio.Id),
             resolveVideoPath: video => string.IsNullOrWhiteSpace(video.FilePath) || !File.Exists(video.FilePath)
                 ? null
                 : video.FilePath,
@@ -489,11 +489,16 @@ public partial class MainViewModel : ObservableObject
     /// otherwise falls back to just the original filename, best-effort, for the user to place by hand.
     ///
     /// ComfyUI's input folder is shared across every workflow on the machine, and source pictures
-    /// often carry generic camera/download names (IMG_1234.jpg) that collide across unrelated
-    /// projects -- a later export can silently overwrite an earlier one's file out from under it,
-    /// which is exactly the failure this was hitting. Copies are prefixed with
-    /// "miniref-{workflow-name}-" so each project's files stay distinct in that shared folder.</summary>
-    private string? ResolveComfyInputFilename(string? filePath, string? comfyRoot)
+    /// often carry generic camera/download names (IMG_1234.jpg) that collide -- both across unrelated
+    /// projects and between two references in the *same* project (e.g. two subjects whose pictures
+    /// happen to share a filename from different folders). A later export can silently overwrite an
+    /// earlier one's file out from under it, and since the copy target is also the LoadImage/LoadAudio
+    /// widget value, two unrelated nodes end up pointing at the same (wrong) image. Copies are named
+    /// "miniref-{workflow-name}-{referenceId}-{original filename}" -- <paramref name="referenceId"/>
+    /// is the PictureRef/AudioRef's own stable Id, so every reference gets a distinct file regardless
+    /// of what its source file happens to be named, and re-exporting the same project reuses the same
+    /// target name instead of accumulating copies.</summary>
+    private string? ResolveComfyInputFilename(string? filePath, string? comfyRoot, Guid referenceId)
     {
         if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath)) return null;
         if (string.IsNullOrWhiteSpace(comfyRoot)) return Path.GetFileName(filePath);
@@ -506,15 +511,16 @@ public partial class MainViewModel : ObservableObject
         if (fullSource.StartsWith(fullInput, StringComparison.OrdinalIgnoreCase))
             return Path.GetRelativePath(fullInput, fullSource);
 
-        var targetName = BuildComfyInputFileName(filePath);
+        var targetName = BuildComfyInputFileName(filePath, referenceId);
         File.Copy(fullSource, Path.Combine(inputFolder, targetName), overwrite: true);
         return targetName;
     }
 
-    private string BuildComfyInputFileName(string sourceFilePath)
+    private string BuildComfyInputFileName(string sourceFilePath, Guid referenceId)
     {
         var workflowSlug = SanitizeFileName(Project.Name).Replace(' ', '-');
-        return $"miniref-{workflowSlug}-{Path.GetFileName(sourceFilePath)}";
+        var idSlug = referenceId.ToString("N")[..8];
+        return $"miniref-{workflowSlug}-{idSlug}-{Path.GetFileName(sourceFilePath)}";
     }
 
     private static string GetNextAvailablePath(string folder, string baseName, string extension)
