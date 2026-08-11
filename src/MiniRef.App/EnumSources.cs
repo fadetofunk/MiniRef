@@ -23,6 +23,9 @@ public static class EnumSources
     public static CameraSpeed?[] CameraSpeedChoices { get; } =
         [null, .. Enum.GetValues<CameraSpeed>().Cast<CameraSpeed?>()];
 
+    public static ShotTransition?[] ShotTransitionChoices { get; } =
+        [null, .. Enum.GetValues<ShotTransition>().Cast<ShotTransition?>()];
+
     public static VisualStyle?[] VisualStyleChoices { get; } =
         [null, .. Enum.GetValues<VisualStyle>().Cast<VisualStyle?>()];
 

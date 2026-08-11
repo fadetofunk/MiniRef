@@ -256,6 +256,15 @@ public partial class ShotCard : UserControl
         InsertAtCaret(" " + EnumFormatting.ToMotionSentence(motion, amplitude, speed));
     }
 
+    /// <summary>Inserts the transition phrase followed by a space, meant for the caret sitting
+    /// at the very start of the shot text -- continues straight into whatever's typed next, e.g.
+    /// "the camera cuts to a close-up of steam rising...", matching the base guide's phrasing.</summary>
+    private void InsertTransition_Click(object sender, RoutedEventArgs e)
+    {
+        if (TransitionCombo.SelectedItem is not ShotTransition transition) return;
+        InsertAtCaret(transition.ToPromptToken() + " ");
+    }
+
     private void InsertDialogue_Click(object sender, RoutedEventArgs e)
     {
         if (Shot is not { } shot) return;

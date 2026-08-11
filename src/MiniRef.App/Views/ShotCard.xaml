@@ -80,6 +80,19 @@
                            Visibility="{Binding Text, Converter={StaticResource BlankStringToVisibility}}"/>
             </Grid>
 
+            <Expander Header="Transition in" Margin="0,8,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                      ToolTip="How this shot cuts in from the previous one. Inserts at the caret -- put it at the very start of the shot text, right after any auto-added &quot;At TS,&quot; prefix.">
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <ComboBox x:Name="TransitionCombo" Width="180"
+                              ItemsSource="{x:Static app:EnumSources.ShotTransitionChoices}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate><TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/></DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button Content="Insert" Margin="6,0,0,0" Click="InsertTransition_Click"/>
+                </StackPanel>
+            </Expander>
+
             <Expander Header="Camera motion" Margin="0,8,0,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}">
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                     <ComboBox x:Name="MotionCombo" Width="130"

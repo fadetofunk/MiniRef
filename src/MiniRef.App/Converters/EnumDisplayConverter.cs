@@ -18,6 +18,7 @@ public class EnumDisplayConverter : IValueConverter
         CameraMotion m => m.ToPromptToken(),
         CameraAmplitude am => am.ToPromptToken(),
         CameraSpeed sp => sp.ToPromptToken(),
+        ShotTransition tr => tr.ToPromptToken(),
         VisualStyle vs => vs.ToPromptToken(),
         WorkflowAspectRatio ar => ar.ToPromptToken(),
         _ => value.ToString() ?? ""

@@ -69,6 +69,18 @@ public enum CameraAmplitude
     Large
 }
 
+/// <summary>The base guide's canned phrases for cutting into a shot from the previous one,
+/// e.g. "[Shot 2] At 00:05.000, the camera cuts to a close-up of steam rising..." -- meant to
+/// be inserted at the very start of a shot's text, continuing the auto-prefixed "At TS," clause.</summary>
+public enum ShotTransition
+{
+    CameraCutsTo,
+    ShotCutsTo,
+    ShotTransitionsTo,
+    ShotChangesTo,
+    ShotSwitchesTo
+}
+
 public enum CameraSpeed
 {
     Slow,

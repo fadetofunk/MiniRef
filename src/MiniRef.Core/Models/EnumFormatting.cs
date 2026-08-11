@@ -93,6 +93,18 @@ public static class EnumFormatting
         _ => value.ToString()
     };
 
+    /// <summary>The literal phrase text, lowercase and with no trailing punctuation since it's
+    /// meant to continue the sentence the composer already opened with "At {timestamp}, ".</summary>
+    public static string ToPromptToken(this ShotTransition value) => value switch
+    {
+        ShotTransition.CameraCutsTo => "the camera cuts to",
+        ShotTransition.ShotCutsTo => "the shot cuts to",
+        ShotTransition.ShotTransitionsTo => "the shot transitions to",
+        ShotTransition.ShotChangesTo => "the shot changes to",
+        ShotTransition.ShotSwitchesTo => "the shot switches to",
+        _ => value.ToString()
+    };
+
     public static string ToPromptToken(this VisualStyle value) => value switch
     {
         VisualStyle.Cinematic => "Cinematic",
