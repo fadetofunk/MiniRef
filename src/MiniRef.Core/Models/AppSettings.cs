@@ -26,4 +26,8 @@ public partial class AppSettings : ObservableObject
     [ObservableProperty] private string? lastAudioFolder;
     [ObservableProperty] private string? lastVideoFolder;
     [ObservableProperty] private string? lastProjectFolder;
+
+    /// <summary>Folder where Character Pod (.mrpod) files are saved to / loaded from
+    /// (see Services.CharacterPodStore) -- analogous to ComfyUiRootFolder above.</summary>
+    [ObservableProperty] private string characterPodsFolder = "";
 }

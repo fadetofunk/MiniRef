@@ -20,12 +20,16 @@ public partial class MainViewModel : ObservableObject
     // per dialog purpose, every OpenFileDialog/SaveFileDialog in the app shares one OS-level "last
     // folder" bucket, which made the separate LastPictureFolder/LastAudioFolder/etc. settings below
     // appear to bleed into each other.
-    private static readonly Guid PictureDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a01");
-    private static readonly Guid AudioDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a02");
+    // Picture/AudioDialogGuid are internal rather than private -- SubjectFieldsEditor (used both in
+    // the main Cast & Setting list and standalone in CharacterPodEditorWindow) opens the same
+    // picture/audio browse dialogs itself and needs to share the same per-purpose identity.
+    internal static readonly Guid PictureDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a01");
+    internal static readonly Guid AudioDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a02");
     private static readonly Guid VideoDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a03");
     private static readonly Guid ProjectDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a04");
     private static readonly Guid ComfyExportDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a05");
     private static readonly Guid ComfyImportDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a06");
+    private static readonly Guid CharacterPodDialogGuid = new("f3b1b7b0-4b7a-4b8e-9b0a-1f7a8f4b5a07");
 
     [ObservableProperty] private ObservableCollection<ProjectTab> openProjects = [];
     [ObservableProperty] private ProjectTab? activeTab;
@@ -118,6 +122,91 @@ public partial class MainViewModel : ObservableObject
     private void AddSubject() => Project.Subjects.Add(new Subject());
 
     [RelayCommand]
+    private void CreateCharacterPod()
+    {
+        if (!EnsurePodsFolderConfigured()) return;
+
+        var editor = new CharacterPodEditorWindow(new Subject(), existingPodFilePath: null, Settings.CharacterPodsFolder)
+            { Owner = Application.Current.MainWindow };
+        if (editor.ShowDialog() != true) return;
+
+        Project.Subjects.Add(editor.SavedSubject);
+    }
+
+    [RelayCommand]
+    private void EditCharacterPod()
+    {
+        if (!EnsurePodsFolderConfigured()) return;
+
+        var openDialog = new OpenFileDialog
+        {
+            Filter = $"Character Pod (*{CharacterPodStore.FileExtension})|*{CharacterPodStore.FileExtension}|All files (*.*)|*.*",
+            InitialDirectory = Settings.CharacterPodsFolder,
+            ClientGuid = CharacterPodDialogGuid
+        };
+        if (openDialog.ShowDialog() != true) return;
+
+        if (!TryLoadPod(openDialog.FileName, out var subject)) return;
+
+        // Edit is a library-maintenance action -- it never touches Project.Subjects, regardless of
+        // Save or Cancel. "Load Existing Pod..." is the separate action for using a character here.
+        var editor = new CharacterPodEditorWindow(subject, openDialog.FileName, Settings.CharacterPodsFolder)
+            { Owner = Application.Current.MainWindow };
+        editor.ShowDialog();
+    }
+
+    [RelayCommand]
+    private void LoadCharacterPod()
+    {
+        if (!EnsurePodsFolderConfigured()) return;
+
+        var dialog = new OpenFileDialog
+        {
+            Filter = $"Character Pod (*{CharacterPodStore.FileExtension})|*{CharacterPodStore.FileExtension}|All files (*.*)|*.*",
+            InitialDirectory = Settings.CharacterPodsFolder,
+            ClientGuid = CharacterPodDialogGuid
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        if (!TryLoadPod(dialog.FileName, out var subject)) return;
+
+        Project.Subjects.Add(subject);
+    }
+
+    private static bool TryLoadPod(string podFilePath, out Subject subject)
+    {
+        try
+        {
+            subject = CharacterPodStore.Load(podFilePath);
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException)
+        {
+            MessageBox.Show($"Couldn't load that pod:\n{ex.Message}", "Character Pod", MessageBoxButton.OK, MessageBoxImage.Error);
+            subject = null!;
+            return false;
+        }
+    }
+
+    /// <summary>Guards Create/Edit/Load pod actions on a configured library folder, offering to
+    /// jump straight into Settings if it's still blank rather than a dead-end error message.</summary>
+    private bool EnsurePodsFolderConfigured()
+    {
+        if (!string.IsNullOrWhiteSpace(Settings.CharacterPodsFolder))
+        {
+            Directory.CreateDirectory(Settings.CharacterPodsFolder);
+            return true;
+        }
+
+        var result = MessageBox.Show(
+            "Set a folder for Character Pods first (Settings > Character Pods folder).\n\nOpen Settings now?",
+            "Character Pods", MessageBoxButton.YesNo, MessageBoxImage.Information);
+        if (result == MessageBoxResult.Yes) ShowSettingsWindow(isFirstRun: false);
+
+        return !string.IsNullOrWhiteSpace(Settings.CharacterPodsFolder);
+    }
+
+    [RelayCommand]
     private void RemoveSubject(Subject subject) => Project.Subjects.Remove(subject);
 
     [RelayCommand]
@@ -125,41 +214,6 @@ public partial class MainViewModel : ObservableObject
 
     [RelayCommand]
     private void MoveSubjectDown(Subject subject) => Move(Project.Subjects, subject, 1);
-
-    [RelayCommand]
-    private void AddPicture(Subject subject) => subject.Pictures.Add(new PictureRef());
-
-    [RelayCommand]
-    private void RemovePicture(PictureRef picture)
-    {
-        foreach (var subject in Project.Subjects)
-            subject.Pictures.Remove(picture);
-    }
-
-    [RelayCommand]
-    private void ToggleAudio(Subject subject) => subject.Audio = subject.Audio is null ? new AudioRef() : null;
-
-    [RelayCommand]
-    private void BrowsePictureFile(PictureRef picture)
-    {
-        var dialog = new OpenFileDialog { Filter = "Image files|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif|All files|*.*", ClientGuid = PictureDialogGuid };
-        if (Directory.Exists(Settings.LastPictureFolder)) dialog.InitialDirectory = Settings.LastPictureFolder;
-        if (dialog.ShowDialog() != true) return;
-
-        picture.FilePath = dialog.FileName;
-        RememberFolder(f => Settings.LastPictureFolder = f, dialog.FileName);
-    }
-
-    [RelayCommand]
-    private void BrowseAudioFile(AudioRef audio)
-    {
-        var dialog = new OpenFileDialog { Filter = "Audio files|*.mp3;*.wav;*.flac;*.ogg;*.m4a|All files|*.*", ClientGuid = AudioDialogGuid };
-        if (Directory.Exists(Settings.LastAudioFolder)) dialog.InitialDirectory = Settings.LastAudioFolder;
-        if (dialog.ShowDialog() != true) return;
-
-        audio.FilePath = dialog.FileName;
-        RememberFolder(f => Settings.LastAudioFolder = f, dialog.FileName);
-    }
 
     [RelayCommand]
     private void BrowseVideoFile(VideoRef video)

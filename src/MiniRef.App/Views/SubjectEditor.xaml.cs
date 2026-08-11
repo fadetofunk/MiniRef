@@ -47,31 +47,4 @@ public partial class SubjectEditor : UserControl
     {
         if (Subject is { } s) MainViewModel?.MoveSubjectDownCommand.Execute(s);
     }
-
-    private void AddPicture_Click(object sender, RoutedEventArgs e)
-    {
-        if (Subject is { } s) MainViewModel?.AddPictureCommand.Execute(s);
-    }
-
-    private void RemovePicture_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: PictureRef picture })
-            MainViewModel?.RemovePictureCommand.Execute(picture);
-    }
-
-    private void ToggleAudio_Click(object sender, RoutedEventArgs e)
-    {
-        if (Subject is { } s) MainViewModel?.ToggleAudioCommand.Execute(s);
-    }
-
-    private void BrowsePicture_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: PictureRef picture })
-            MainViewModel?.BrowsePictureFileCommand.Execute(picture);
-    }
-
-    private void BrowseAudio_Click(object sender, RoutedEventArgs e)
-    {
-        if (Subject?.Audio is { } audio) MainViewModel?.BrowseAudioFileCommand.Execute(audio);
-    }
 }

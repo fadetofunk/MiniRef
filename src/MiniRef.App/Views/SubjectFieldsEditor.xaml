@@ -1,0 +1,162 @@
+<UserControl x:Class="MiniRef.App.Views.SubjectFieldsEditor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:models="clr-namespace:MiniRef.Core.Models;assembly=MiniRef.Core"
+             xmlns:conv="clr-namespace:MiniRef.App.Converters"
+             xmlns:app="clr-namespace:MiniRef.App"
+             mc:Ignorable="d"
+             d:DesignWidth="300">
+    <UserControl.Resources>
+        <conv:EnumDisplayConverter x:Key="EnumDisplay"/>
+        <conv:NullToVisibilityConverter x:Key="NullToVis"/>
+        <conv:NullToBoolConverter x:Key="NullToBool"/>
+        <conv:PathToFileNameConverter x:Key="PathToFileName"/>
+        <conv:BlankStringToVisibilityConverter x:Key="BlankStringToVisibility"/>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <ComboBox Margin="0,6,0,0"
+                  ItemsSource="{x:Static app:EnumSources.Classifications}"
+                  SelectedItem="{Binding Classification}">
+            <ComboBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/>
+                </DataTemplate>
+            </ComboBox.ItemTemplate>
+        </ComboBox>
+
+        <Grid Margin="0,6,0,0">
+            <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                     SpellCheck.IsEnabled="False"
+                     ToolTip="A short label so you can tell subjects apart in this editor -- it is not used in the exported prompt itself."/>
+            <TextBlock Text="Name (for your reference)" IsHitTestVisible="False" FontStyle="Italic" Opacity="0.65"
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="8,0,0,0" VerticalAlignment="Center"
+                       Visibility="{Binding Name, Converter={StaticResource BlankStringToVisibility}}"/>
+        </Grid>
+
+        <Grid Margin="0,6,0,0">
+            <TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}"
+                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="50" MaxHeight="120"
+                     VerticalScrollBarVisibility="Auto">
+                <TextBox.ToolTip>
+                    <TextBlock MaxWidth="320" TextWrapping="Wrap"
+                               Text="Defining visual traits -- hair, clothing, accessories, distinguishing features. Woven automatically into '&lt;Subject N&gt; is...' in the exported prompt.&#10;Example: &quot;long dark hair, a blue cardigan, and a thin silver necklace.&quot;"/>
+                </TextBox.ToolTip>
+            </TextBox>
+            <TextBlock Text="Appearance, e.g. &quot;long dark hair, a blue cardigan, a thin silver necklace&quot;"
+                       IsHitTestVisible="False" TextWrapping="Wrap" FontStyle="Italic" Opacity="0.65"
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="8,4,8,0" VerticalAlignment="Top"
+                       Visibility="{Binding Description, Converter={StaticResource BlankStringToVisibility}}"/>
+        </Grid>
+
+        <TextBlock Text="Pictures" Margin="0,8,0,2" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+        <ItemsControl ItemsSource="{Binding Pictures}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="{x:Type models:PictureRef}">
+                    <Border Margin="0,2,0,0" Padding="4" Background="{DynamicResource CardBackgroundFillColorSecondaryBrush}" CornerRadius="3">
+                        <StackPanel>
+                            <DockPanel LastChildFill="False">
+                                <TextBlock DockPanel.Dock="Left" FontWeight="Bold" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                           VerticalAlignment="Center" Margin="0,0,6,0"
+                                           Text="{Binding DisplayNumber, StringFormat='&lt;Picture {0}&gt;'}"/>
+                                <Button DockPanel.Dock="Right" Content="✕" Width="20" Padding="0"
+                                        Click="RemovePicture_Click"/>
+                            </DockPanel>
+                            <Grid Margin="0,4,0,0">
+                                <TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}">
+                                    <TextBox.ToolTip>
+                                        <TextBlock MaxWidth="300" TextWrapping="Wrap"
+                                                   Text="Short label so you can tell &lt;Picture N&gt; references apart. Examples: &quot;front view&quot;, &quot;close-up of the necklace&quot;, &quot;the café interior&quot;."/>
+                                    </TextBox.ToolTip>
+                                </TextBox>
+                                <TextBlock Text="Label, e.g. &quot;front view&quot;" IsHitTestVisible="False" FontStyle="Italic" Opacity="0.65"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="8,0,0,0" VerticalAlignment="Center"
+                                           Visibility="{Binding Description, Converter={StaticResource BlankStringToVisibility}}"/>
+                            </Grid>
+                            <DockPanel Margin="0,4,0,0" LastChildFill="True">
+                                <Button DockPanel.Dock="Left" Content="Browse..." Padding="6,2"
+                                        Click="BrowsePicture_Click"/>
+                                <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" FontSize="10"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding FilePath}"
+                                           Text="{Binding FilePath, Converter={StaticResource PathToFileName}}"/>
+                            </DockPanel>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button Content="+ Add Picture" HorizontalAlignment="Left" Margin="0,4,0,0"
+                Click="AddPicture_Click"/>
+
+        <CheckBox Content="Has voice / audio reference" Margin="0,10,0,0"
+                  IsChecked="{Binding Audio, Converter={StaticResource NullToBool}, Mode=OneWay}"
+                  Click="ToggleAudio_Click"/>
+
+        <StackPanel Visibility="{Binding Audio, Converter={StaticResource NullToVis}}" Margin="12,4,0,0">
+            <TextBlock FontWeight="Bold" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                       Text="{Binding Audio.DisplayNumber, StringFormat='&lt;Audio {0}&gt;'}"/>
+            <Grid Margin="0,4,0,0">
+                <TextBox Text="{Binding Audio.Description, UpdateSourceTrigger=PropertyChanged}">
+                    <TextBox.ToolTip>
+                        <TextBlock MaxWidth="300" TextWrapping="Wrap"
+                                   Text="What this audio reference captures (optional). Examples: &quot;her calm, breathy speaking voice&quot;, &quot;the acoustic guitar melody to reuse&quot;."/>
+                    </TextBox.ToolTip>
+                </TextBox>
+                <TextBlock Text="Voice/audio note (optional)" IsHitTestVisible="False" FontStyle="Italic" Opacity="0.65"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="8,0,0,0" VerticalAlignment="Center"
+                           Visibility="{Binding Audio.Description, Converter={StaticResource BlankStringToVisibility}}"/>
+            </Grid>
+            <DockPanel Margin="0,4,0,0" LastChildFill="True">
+                <Button DockPanel.Dock="Left" Content="Browse..." Padding="6,2" Click="BrowseAudio_Click"/>
+                <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" FontSize="10"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding Audio.FilePath}"
+                           Text="{Binding Audio.FilePath, Converter={StaticResource PathToFileName}}"/>
+            </DockPanel>
+            <ComboBox Margin="0,4,0,0"
+                      ItemsSource="{x:Static app:EnumSources.AudioRetentionChoices}"
+                      SelectedItem="{Binding Audio.Retention}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <Grid Margin="0,4,0,0">
+                <TextBox Text="{Binding Audio.RetentionNote, UpdateSourceTrigger=PropertyChanged}">
+                    <TextBox.ToolTip>
+                        <TextBlock MaxWidth="320" TextWrapping="Wrap"
+                                   Text="How closely the output should match this audio. Levels: fully_copy, partially_copy, reference, weak_reference.&#10;Example: &quot;partially_copy -- same voice and pacing, but speaking new dialogue.&quot;"/>
+                    </TextBox.ToolTip>
+                </TextBox>
+                <TextBlock Text="What's kept, e.g. &quot;same voice, new words&quot;" IsHitTestVisible="False" FontStyle="Italic" Opacity="0.65"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="8,0,0,0" VerticalAlignment="Center"
+                           Visibility="{Binding Audio.RetentionNote, Converter={StaticResource BlankStringToVisibility}}"/>
+            </Grid>
+        </StackPanel>
+
+        <TextBlock Text="Retention (visual)" Margin="0,10,0,2" FontSize="11" Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+        <ComboBox ItemsSource="{x:Static app:EnumSources.VisualRetentionChoices}"
+                  SelectedItem="{Binding Retention}">
+            <ComboBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/>
+                </DataTemplate>
+            </ComboBox.ItemTemplate>
+        </ComboBox>
+        <Grid Margin="0,4,0,0">
+            <TextBox Text="{Binding RetentionNote, UpdateSourceTrigger=PropertyChanged}">
+                <TextBox.ToolTip>
+                    <TextBlock MaxWidth="320" TextWrapping="Wrap"
+                               Text="What's kept vs. changed for this subject. Levels: fully_preserved, partially_preserved, attribute_transfer, weak_reference.&#10;Example: &quot;attribute_transfer -- her hairstyle and color are transferred onto a different face.&quot;"/>
+                </TextBox.ToolTip>
+            </TextBox>
+            <TextBlock Text="What's preserved, e.g. &quot;face and outfit only&quot;" IsHitTestVisible="False" FontStyle="Italic" Opacity="0.65"
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="8,0,0,0" VerticalAlignment="Center"
+                       Visibility="{Binding RetentionNote, Converter={StaticResource BlankStringToVisibility}}"/>
+        </Grid>
+    </StackPanel>
+</UserControl>

@@ -129,8 +129,20 @@
             <DockPanel Grid.Column="0" Margin="8">
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                     <TextBlock Text="Cast &amp; Setting" FontWeight="Bold" FontSize="14"/>
-                    <Button DockPanel.Dock="Right" Content="+ Add" Padding="8,2" HorizontalAlignment="Right"
-                            Command="{Binding AddSubjectCommand}"/>
+                    <Button x:Name="AddSubjectButton" DockPanel.Dock="Right" Content="+ Add ▾" Padding="8,2" HorizontalAlignment="Right"
+                            Click="AddSubjectButton_Click">
+                        <Button.ContextMenu>
+                            <ContextMenu Placement="Bottom">
+                                <MenuItem Header="Blank Subject" Command="{Binding AddSubjectCommand}"/>
+                                <Separator/>
+                                <MenuItem Header="Pod">
+                                    <MenuItem Header="Create New Character Pod..." Command="{Binding CreateCharacterPodCommand}"/>
+                                    <MenuItem Header="Edit Existing Pod..." Command="{Binding EditCharacterPodCommand}"/>
+                                    <MenuItem Header="Load Existing Pod..." Command="{Binding LoadCharacterPodCommand}"/>
+                                </MenuItem>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
                 </DockPanel>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <ItemsControl ItemsSource="{Binding Project.Subjects}" AlternationCount="1000000">

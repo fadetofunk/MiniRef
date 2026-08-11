@@ -29,7 +29,18 @@ public partial class MainWindow : Window
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
         AttachToProject(ViewModel.Project);
 
+        // A ContextMenu is a separate logical-tree root and doesn't inherit DataContext from its
+        // owner -- without this, the "+ Add" menu's Command bindings would silently resolve to
+        // nothing.
+        AddSubjectButton.ContextMenu!.DataContext = DataContext;
+
         Loaded += MainWindow_Loaded;
+    }
+
+    private void AddSubjectButton_Click(object sender, RoutedEventArgs e)
+    {
+        AddSubjectButton.ContextMenu!.PlacementTarget = AddSubjectButton;
+        AddSubjectButton.ContextMenu.IsOpen = true;
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)

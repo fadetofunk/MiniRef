@@ -32,6 +32,7 @@ public partial class SettingsWindow : Window
         _settings = settings;
         RootFolderTextBox.Text = settings.ComfyUiRootFolder;
         SaveOnExportCheckBox.IsChecked = settings.SaveOnExport;
+        CharacterPodsFolderTextBox.Text = settings.CharacterPodsFolder;
 
         if (isFirstRun)
         {
@@ -77,6 +78,16 @@ public partial class SettingsWindow : Window
     }
 
     private void RootFolderTextBox_TextChanged(object sender, TextChangedEventArgs e) => UpdateRootValidationMessage();
+
+    private void BrowsePods_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog { Title = "Select Character Pods folder" };
+        if (!string.IsNullOrWhiteSpace(CharacterPodsFolderTextBox.Text) && Directory.Exists(CharacterPodsFolderTextBox.Text))
+            dialog.InitialDirectory = CharacterPodsFolderTextBox.Text;
+
+        if (dialog.ShowDialog() == true)
+            CharacterPodsFolderTextBox.Text = dialog.FolderName;
+    }
 
     private void UpdateRootValidationMessage()
     {
@@ -131,6 +142,7 @@ public partial class SettingsWindow : Window
 
         _settings.ComfyUiRootFolder = root;
         _settings.SaveOnExport = SaveOnExportCheckBox.IsChecked == true;
+        _settings.CharacterPodsFolder = CharacterPodsFolderTextBox.Text.Trim();
 
         foreach (var row in _modelRows)
         {
