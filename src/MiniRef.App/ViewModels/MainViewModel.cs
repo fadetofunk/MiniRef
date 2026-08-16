@@ -307,7 +307,10 @@ public partial class MainViewModel : ObservableObject
     private bool SaveTab(ProjectTab? tab)
     {
         if (tab is null) return false;
-        if (tab.FilePath is null) return SaveTabAs(tab);
+        // A brand-new, never-saved tab has no meaningfully distinct "prior" state to keep separate
+        // from what's being saved right now -- claim this same tab (see keepOriginalTabOpen: false
+        // below) instead of leaving a redundant, permanently-unsaved duplicate behind it.
+        if (tab.FilePath is null) return SaveTabAs(tab, keepOriginalTabOpen: false);
 
         ProjectStore.Save(tab.Project, tab.FilePath);
         tab.MarkSaved();
@@ -316,9 +319,14 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void SaveProjectAs() => SaveTabAs(ActiveTab);
+    private void SaveProjectAs() => SaveTabAs(ActiveTab, keepOriginalTabOpen: true);
 
-    private bool SaveTabAs(ProjectTab? tab)
+    /// <param name="keepOriginalTabOpen">True for an explicit "Save As...": the file just saved
+    /// opens as its own new tab (via OpenProjectFile, same as opening it by hand), and whatever was
+    /// open before -- including any unsaved changes -- is left completely untouched rather than
+    /// being silently repointed at the new file. False for a first-ever Save on a new tab, where
+    /// there's nothing else to retain.</param>
+    private bool SaveTabAs(ProjectTab? tab, bool keepOriginalTabOpen)
     {
         if (tab is null) return false;
 
@@ -332,11 +340,34 @@ public partial class MainViewModel : ObservableObject
         if (dialog.ShowDialog() != true) return false;
 
         ProjectStore.Save(tab.Project, dialog.FileName);
-        tab.FilePath = dialog.FileName;
-        tab.MarkSaved();
         RememberFolder(f => Settings.LastProjectFolder = f, dialog.FileName);
-        SaveSession();
+
+        if (keepOriginalTabOpen)
+        {
+            OpenProjectFile(dialog.FileName);
+        }
+        else
+        {
+            tab.FilePath = dialog.FileName;
+            tab.Project.Name = NameFromProjectFilePath(dialog.FileName);
+            tab.MarkSaved();
+            SaveSession();
+        }
+
         return true;
+    }
+
+    /// <summary>Derives a project's display name from a chosen file path -- so claiming a tab's
+    /// first-ever save (see SaveTabAs) updates its switcher entry to match, instead of leaving it
+    /// stuck on whatever the project was called before (confusing once the file name and the in-app
+    /// name have drifted apart). Strips the full ".mmref.json" extension rather than just the last
+    /// segment, since Path.GetFileNameWithoutExtension alone would leave ".mmref" behind.</summary>
+    private static string NameFromProjectFilePath(string filePath)
+    {
+        var fileName = Path.GetFileName(filePath);
+        return fileName.EndsWith(ProjectStore.FileExtension, StringComparison.OrdinalIgnoreCase)
+            ? fileName[..^ProjectStore.FileExtension.Length]
+            : Path.GetFileNameWithoutExtension(fileName);
     }
 
     /// <summary>Closes one project tab from the project switcher, prompting to save first if it has
