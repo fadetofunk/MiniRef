@@ -275,6 +275,7 @@ public partial class ShotCard : UserControl
 
         var (subjectNumbers, _, _) = ReferenceNumberer.NumberSubjects(AllSubjects);
         var n = subjectNumbers.TryGetValue(speaker.Id, out var num) ? num : 0;
+        var sx = SpeakerNumberFor(speaker.Id);
 
         // Neither guide defines an official "no dialogue" marker -- overall_soundscape's N/A
         // only covers silence for the whole video, not a single shot. So a silent subject is
@@ -282,7 +283,7 @@ public partial class ShotCard : UserControl
         // to give the model an explicit instruction rather than an audio gap it fills on its own.
         if (SilentCheckBox.IsChecked == true)
         {
-            InsertAtCaret($" {ReferenceNumberer.SubjectTag(n)} {ReferenceNumberer.SpeakerTag(n)} says nothing, remaining silent.");
+            InsertAtCaret($" {ReferenceNumberer.SubjectTag(n)} {ReferenceNumberer.SpeakerTag(sx)} says nothing, remaining silent.");
             return;
         }
 
@@ -296,9 +297,22 @@ public partial class ShotCard : UserControl
         // ended and scene description resumes -- omitting it (as this used to) leaves the
         // boundary ambiguous. "says," is a generic default; edit it in place to add delivery,
         // e.g. "says in a hushed, panicked voice,".
-        InsertAtCaret($" {ReferenceNumberer.SubjectTag(n)} {ReferenceNumberer.SpeakerTag(n)} says, <d>[{lang}] {text}</d>");
+        InsertAtCaret($" {ReferenceNumberer.SubjectTag(n)} {ReferenceNumberer.SpeakerTag(sx)} says, <d>[{lang}] {text}</d>");
         shot.Dialogue.Add(new DialogueLine { SpeakerSubjectId = speaker.Id, Language = lang, Text = text });
         DialogueTextBox.Clear();
+    }
+
+    /// <summary>Speaker (Sx) IDs are assigned by order of first actual vocal event across the
+    /// whole project's shots (see ReferenceNumberer.NumberSpeakers), independent of &lt;Subject
+    /// N&gt; -- reuses this speaker's existing ID if they've already spoken elsewhere, otherwise
+    /// they're about to become the next new speaker.</summary>
+    private int SpeakerNumberFor(Guid speakerSubjectId)
+    {
+        var shots = MainViewModel?.Project.Shots;
+        if (shots is null) return 0;
+
+        var speakerNumbers = ReferenceNumberer.NumberSpeakers(shots);
+        return speakerNumbers.TryGetValue(speakerSubjectId, out var n) ? n : speakerNumbers.Count + 1;
     }
 
     private void SilentCheckBox_CheckedChanged(object sender, RoutedEventArgs e)

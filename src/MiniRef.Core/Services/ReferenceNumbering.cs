@@ -10,6 +10,13 @@ public class ReferenceNumbering
     public required IReadOnlyDictionary<Guid, int> PictureNumbers { get; init; }
     public required IReadOnlyDictionary<Guid, int> AudioNumbers { get; init; }
     public required IReadOnlyDictionary<Guid, int> VideoNumbers { get; init; }
+
+    /// <summary>Subject.Id -> "(Sx)" speaker ID, present only for subjects with at least one
+    /// recorded line of dialogue (see ReferenceNumberer.NumberSpeakers) -- independent of
+    /// SubjectNumbers, since speaker order follows when a subject first actually speaks, not
+    /// their &lt;Subject N&gt; declaration order.</summary>
+    public required IReadOnlyDictionary<Guid, int> SpeakerNumbers { get; init; }
+
     public required IReadOnlyDictionary<Guid, int> ShotNumbers { get; init; }
 
     /// <summary>Subject.Id -> ordered, de-duplicated shot numbers the subject appears in,

@@ -196,6 +196,105 @@ public class PromptComposerTests
         Assert.Contains("<Audio 2> is the voice-timbre reference for <Subject 1> (S1), singing voice.", prompt);
     }
 
+    // Regression test: per the guide, "(Sx)" speaker IDs come from the target video's global
+    // speaker order and are NOT renumbered from <Subject N> -- a higher-numbered subject who
+    // speaks first still gets (S1). The bug this guards against: SpeakerTag used to just reuse
+    // the subject's own <Subject N> number, so with multiple distinct audio voice references in
+    // play, a subject speaking out of declaration order got mismatched to the wrong voice.
+    [Fact]
+    public void SpeakerIds_FollowActualSpeakingOrder_NotSubjectDeclarationOrder()
+    {
+        var hero = new Subject
+        {
+            Name = "Hero",
+            Description = "a blonde superhero",
+            Audios = [new AudioRef { Description = "" }]
+        };
+        var villain = new Subject
+        {
+            Name = "Villain",
+            Description = "a shadow demon",
+            Audios = [new AudioRef { Description = "" }]
+        };
+        var narrator = new Subject
+        {
+            Name = "Narrator",
+            Description = "an unseen voice",
+            Audios = [new AudioRef { Description = "" }]
+        };
+
+        var project = new SceneProject
+        {
+            // Declared as <Subject 1>/<Subject 2>/<Subject 3> in this order, but the villain
+            // actually speaks FIRST, the hero speaks SECOND, and the narrator never speaks at all.
+            Subjects = [hero, villain, narrator],
+            Shots =
+            [
+                new Shot
+                {
+                    Text = "<Subject 2> (S1) says, <d>[English] You're done.</d> " +
+                           "<Subject 1> (S2) says, <d>[English] Not yet.</d>",
+                    Dialogue =
+                    [
+                        new DialogueLine { SpeakerSubjectId = villain.Id, Text = "You're done." },
+                        new DialogueLine { SpeakerSubjectId = hero.Id, Text = "Not yet." }
+                    ]
+                }
+            ]
+        };
+
+        var numbering = ReferenceNumberer.Compute(project);
+        Assert.Equal(1, numbering.SpeakerNumbers[villain.Id]);
+        Assert.Equal(2, numbering.SpeakerNumbers[hero.Id]);
+        Assert.False(numbering.SpeakerNumbers.ContainsKey(narrator.Id));
+
+        var prompt = PromptComposer.Compose(project);
+        Assert.Contains("<Audio 2> is the voice-timbre reference for <Subject 2> (S1).", prompt);
+        Assert.Contains("<Audio 1> is the voice-timbre reference for <Subject 1> (S2).", prompt);
+        // The narrator never speaks, so their own audio sentence falls back to their own
+        // <Subject N> number (3) rather than a fabricated speaker order.
+        Assert.Contains("<Audio 3> is the voice-timbre reference for <Subject 3> (S3).", prompt);
+    }
+
+    // Regression test for a bug introduced by an earlier fix attempt: falling back to a
+    // non-speaking subject's own <Subject N> number for their audio sentence can collide with a
+    // DIFFERENT subject's real speaker number, producing two different subjects both declared as
+    // e.g. (S1) -- which is exactly the ambiguity the whole (Sx) system exists to avoid. This is
+    // the literal shape of the reported bug: <Subject 1> never speaks, but a later-declared
+    // subject is the actual first speaker (real S1); <Subject 1>'s fallback must not also claim S1.
+    [Fact]
+    public void NonSpeakingSubjectsAudioFallback_NeverCollidesWithARealSpeakerNumber()
+    {
+        var nonSpeaker = new Subject { Name = "Bystander", Audios = [new AudioRef()] };
+        var secondSpeaker = new Subject { Name = "Second", Audios = [new AudioRef()] };
+        var firstSpeaker = new Subject { Name = "First", Audios = [new AudioRef()] };
+
+        var project = new SceneProject
+        {
+            // <Subject 1> = Bystander (never speaks). <Subject 3> = First actually speaks first
+            // in the video, so real speaker order gives First=S1, Second=S2 -- Bystander's own
+            // <Subject N> number (1) must not be reused as their fallback, or they'd collide with
+            // First's real (S1).
+            Subjects = [nonSpeaker, secondSpeaker, firstSpeaker],
+            Shots =
+            [
+                new Shot
+                {
+                    Dialogue =
+                    [
+                        new DialogueLine { SpeakerSubjectId = firstSpeaker.Id, Text = "Me first." },
+                        new DialogueLine { SpeakerSubjectId = secondSpeaker.Id, Text = "My turn." }
+                    ]
+                }
+            ]
+        };
+
+        var prompt = PromptComposer.Compose(project);
+        Assert.Contains("<Audio 3> is the voice-timbre reference for <Subject 3> (S1).", prompt);
+        Assert.Contains("<Audio 2> is the voice-timbre reference for <Subject 2> (S2).", prompt);
+        Assert.Contains("<Audio 1> is the voice-timbre reference for <Subject 1> (S3).", prompt);
+    }
+
     [Fact]
     public void TaskTypes_CombineWithPlus_AndSkipUnsetSubjects()
     {

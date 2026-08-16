@@ -54,6 +54,13 @@ public static class PromptComposer
     {
         var sentences = new List<string>();
 
+        // A subject with an audio reference who never actually speaks anywhere still needs some
+        // (Sx) for its voice-timbre sentence, but it must not collide with a real speaker's own
+        // ID (that collision was itself a bug -- see below). Assigning trailing numbers, starting
+        // right after every subject with an actual vocal event, guarantees no two subjects ever
+        // share an (Sx) here.
+        var nextFallbackSpeakerNumber = numbering.SpeakerNumbers.Count + 1;
+
         foreach (var subject in project.Subjects)
         {
             var n = numbering.SubjectNumber(subject.Id);
@@ -69,13 +76,23 @@ public static class PromptComposer
 
             sentences.Add($"{ReferenceNumberer.SubjectTag(n)} is {description}");
 
-            foreach (var audio in subject.Audios)
+            if (subject.Audios.Count > 0)
             {
-                var audioTag = ReferenceNumberer.AudioTag(numbering.AudioNumber(audio.Id));
+                // Per the guide, (Sx) is assigned by order of actual vocal events in the video,
+                // independent of <Subject N> -- NOT just reused from the subject's own number
+                // (that was the bug: with several distinct audio tracks in play, a wrong (Sx)
+                // here can make the model attribute the wrong voice to a speaking turn). All of
+                // this subject's audios share the same (Sx), computed once.
+                var speakerNumber = numbering.SpeakerNumbers.TryGetValue(subject.Id, out var sx) ? sx : nextFallbackSpeakerNumber++;
+                var speakerTag = ReferenceNumberer.SpeakerTag(speakerNumber);
                 var subjectTag = ReferenceNumberer.SubjectTag(n);
-                var speakerTag = ReferenceNumberer.SpeakerTag(n);
-                var note = string.IsNullOrWhiteSpace(audio.Description) ? "" : $", {audio.Description.Trim()}";
-                sentences.Add($"{audioTag} is the voice-timbre reference for {subjectTag} {speakerTag}{note}.");
+
+                foreach (var audio in subject.Audios)
+                {
+                    var audioTag = ReferenceNumberer.AudioTag(numbering.AudioNumber(audio.Id));
+                    var note = string.IsNullOrWhiteSpace(audio.Description) ? "" : $", {audio.Description.Trim()}";
+                    sentences.Add($"{audioTag} is the voice-timbre reference for {subjectTag} {speakerTag}{note}.");
+                }
             }
         }
 

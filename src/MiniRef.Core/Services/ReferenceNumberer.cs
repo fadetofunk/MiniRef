@@ -53,10 +53,34 @@ public static partial class ReferenceNumberer
         return videoNumbers;
     }
 
+    /// <summary>Assigns speaker "(Sx)" IDs by the order subjects first actually speak, across
+    /// shots in list order and each shot's Dialogue in insertion order. Per the guide: "Assign
+    /// (Sx) once according to the order of actual vocal events in the target video" -- the ID
+    /// "comes from the target video's global speaker order and is not independently assigned or
+    /// renumbered" from &lt;Subject N&gt;, so a subject speaking third overall gets (S3) even if
+    /// they're &lt;Subject 1&gt;, and a subject who never has a recorded line isn't assigned one
+    /// at all (there's no vocal event to order by). Used both by <see cref="Compute"/> and
+    /// directly by the UI's dialogue-insert helper, so the ID shown while writing always matches
+    /// the composed output.</summary>
+    public static IReadOnlyDictionary<Guid, int> NumberSpeakers(IReadOnlyList<Shot> shots)
+    {
+        var speakerNumbers = new Dictionary<Guid, int>();
+        foreach (var shot in shots)
+        {
+            foreach (var line in shot.Dialogue)
+            {
+                if (!speakerNumbers.ContainsKey(line.SpeakerSubjectId))
+                    speakerNumbers[line.SpeakerSubjectId] = speakerNumbers.Count + 1;
+            }
+        }
+        return speakerNumbers;
+    }
+
     public static ReferenceNumbering Compute(SceneProject project)
     {
         var (subjectNumbers, pictureNumbers, audioNumbers) = NumberSubjects(project.Subjects);
         var videoNumbers = NumberVideos(project.SourceVideos);
+        var speakerNumbers = NumberSpeakers(project.Shots);
         var shotNumbers = new Dictionary<Guid, int>();
 
         for (var i = 0; i < project.Shots.Count; i++)
@@ -70,6 +94,7 @@ public static partial class ReferenceNumberer
             PictureNumbers = pictureNumbers,
             AudioNumbers = audioNumbers,
             VideoNumbers = videoNumbers,
+            SpeakerNumbers = speakerNumbers,
             ShotNumbers = shotNumbers,
             SubjectAppearances = appearances
         };
