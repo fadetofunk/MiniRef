@@ -13,7 +13,7 @@ public class CharacterPodManifest
     public VisualRetentionType? Retention { get; set; }
     public string RetentionNote { get; set; } = "";
     public List<PictureEntry> Pictures { get; set; } = [];
-    public AudioEntry? Audio { get; set; }
+    public List<AudioEntry> Audios { get; set; } = [];
 
     public class PictureEntry
     {

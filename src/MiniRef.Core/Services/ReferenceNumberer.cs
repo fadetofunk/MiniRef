@@ -36,7 +36,7 @@ public static partial class ReferenceNumberer
             foreach (var picture in subject.Pictures)
                 pictureNumbers[picture.Id] = ++pictureCounter;
 
-            if (subject.Audio is { } audio)
+            foreach (var audio in subject.Audios)
                 audioNumbers[audio.Id] = ++audioCounter;
         }
 

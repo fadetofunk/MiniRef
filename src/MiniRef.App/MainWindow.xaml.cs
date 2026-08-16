@@ -109,14 +109,16 @@ public partial class MainWindow : Window
     {
         if (!_subscribedSubjects.Add(s)) return;
         s.PropertyChanged += Subject_PropertyChanged;
-        s.Pictures.CollectionChanged += Pictures_CollectionChanged;
+        s.Pictures.CollectionChanged += ReferenceList_CollectionChanged;
+        s.Audios.CollectionChanged += ReferenceList_CollectionChanged;
     }
 
     private void UnsubscribeSubject(Subject s)
     {
         if (!_subscribedSubjects.Remove(s)) return;
         s.PropertyChanged -= Subject_PropertyChanged;
-        s.Pictures.CollectionChanged -= Pictures_CollectionChanged;
+        s.Pictures.CollectionChanged -= ReferenceList_CollectionChanged;
+        s.Audios.CollectionChanged -= ReferenceList_CollectionChanged;
     }
 
     private void SubscribeVideo(VideoRef v)
@@ -132,7 +134,7 @@ public partial class MainWindow : Window
     }
 
     private void Subject_PropertyChanged(object? sender, PropertyChangedEventArgs e) => RefreshDerivedState();
-    private void Pictures_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => RefreshDerivedState();
+    private void ReferenceList_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => RefreshDerivedState();
 
     /// <summary>Recomputes everything that depends on subject/picture/audio/video order: the
     /// summary chip list and each PictureRef/AudioRef's DisplayNumber (the N shown as
@@ -151,7 +153,7 @@ public partial class MainWindow : Window
         {
             foreach (var picture in subject.Pictures)
                 picture.DisplayNumber = pictureNumbers[picture.Id];
-            if (subject.Audio is { } audio)
+            foreach (var audio in subject.Audios)
                 audio.DisplayNumber = audioNumbers[audio.Id];
         }
     }

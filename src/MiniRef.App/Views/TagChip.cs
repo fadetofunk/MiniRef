@@ -24,7 +24,7 @@ public static class TagChipBuilder
             foreach (var p in s.Pictures)
                 chips.Add(new TagChip($"+ Picture {pictureNumbers[p.Id]}", ReferenceNumberer.PictureTag(pictureNumbers[p.Id])));
 
-            if (s.Audio is { } audio)
+            foreach (var audio in s.Audios)
                 chips.Add(new TagChip($"+ Audio {audioNumbers[audio.Id]}", ReferenceNumberer.AudioTag(audioNumbers[audio.Id])));
         }
 

@@ -126,8 +126,7 @@ public static class ComfyWorkflowExporter
             .ToList();
 
         var audioRefs = project.Subjects
-            .Where(s => s.Audio is not null)
-            .Select(s => (Subject: s, Audio: s.Audio!))
+            .SelectMany(s => s.Audios.Select(a => (Subject: s, Audio: a)))
             .Take(MaxAudioSlots)
             .ToList();
 

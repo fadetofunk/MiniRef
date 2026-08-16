@@ -127,6 +127,7 @@ public partial class ShotCard : UserControl
         if (!_subscribed.Add(s)) return;
         s.PropertyChanged += Subject_PropertyChanged;
         s.Pictures.CollectionChanged += PicturesOrDialogue_CollectionChanged;
+        s.Audios.CollectionChanged += PicturesOrDialogue_CollectionChanged;
     }
 
     private void Unsubscribe(Subject s)
@@ -134,6 +135,7 @@ public partial class ShotCard : UserControl
         if (!_subscribed.Remove(s)) return;
         s.PropertyChanged -= Subject_PropertyChanged;
         s.Pictures.CollectionChanged -= PicturesOrDialogue_CollectionChanged;
+        s.Audios.CollectionChanged -= PicturesOrDialogue_CollectionChanged;
     }
 
     private void UnsubscribeAll()

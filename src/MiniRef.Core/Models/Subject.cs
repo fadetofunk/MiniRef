@@ -18,7 +18,7 @@ public partial class Subject : ObservableObject
     [ObservableProperty] private string description = "";
 
     [ObservableProperty] private ObservableCollection<PictureRef> pictures = [];
-    [ObservableProperty] private AudioRef? audio;
+    [ObservableProperty] private ObservableCollection<AudioRef> audios = [];
 
     [ObservableProperty] private VisualRetentionType? retention;
     [ObservableProperty] private string retentionNote = "";

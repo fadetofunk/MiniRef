@@ -27,13 +27,16 @@ public class CharacterPodStoreTests
             new PictureRef { Description = "front view", FilePath = picture1Path },
             new PictureRef { Description = "profile", FilePath = picture2Path }
         ],
-        Audio = new AudioRef
-        {
-            Description = "calm, breathy speaking voice",
-            Retention = AudioRetentionType.PartiallyCopy,
-            RetentionNote = "same voice, new words",
-            FilePath = audioPath
-        }
+        Audios =
+        [
+            new AudioRef
+            {
+                Description = "calm, breathy speaking voice",
+                Retention = AudioRetentionType.PartiallyCopy,
+                RetentionNote = "same voice, new words",
+                FilePath = audioPath
+            }
+        ]
     };
 
     [Fact]
@@ -68,11 +71,50 @@ public class CharacterPodStoreTests
             Assert.Equal([1, 2, 3], File.ReadAllBytes(loaded.Pictures[0].FilePath!));
             Assert.Equal([4, 5, 6, 7], File.ReadAllBytes(loaded.Pictures[1].FilePath!));
 
-            Assert.NotNull(loaded.Audio);
-            Assert.Equal("calm, breathy speaking voice", loaded.Audio!.Description);
-            Assert.Equal(AudioRetentionType.PartiallyCopy, loaded.Audio.Retention);
-            Assert.Equal("same voice, new words", loaded.Audio.RetentionNote);
-            Assert.Equal([8, 9], File.ReadAllBytes(loaded.Audio.FilePath!));
+            Assert.Single(loaded.Audios);
+            Assert.Equal("calm, breathy speaking voice", loaded.Audios[0].Description);
+            Assert.Equal(AudioRetentionType.PartiallyCopy, loaded.Audios[0].Retention);
+            Assert.Equal("same voice, new words", loaded.Audios[0].RetentionNote);
+            Assert.Equal([8, 9], File.ReadAllBytes(loaded.Audios[0].FilePath!));
+        }
+        finally
+        {
+            Directory.Delete(work, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RoundTrip_PreservesMultipleAudiosOnOneSubject()
+    {
+        var work = NewTempFolder();
+        try
+        {
+            var voicePath = Path.Combine(work, "voice.mp3");
+            var singingPath = Path.Combine(work, "singing.mp3");
+            File.WriteAllBytes(voicePath, [1, 1]);
+            File.WriteAllBytes(singingPath, [2, 2, 2]);
+
+            var subject = new Subject
+            {
+                Name = "Sarah Connor",
+                Audios =
+                [
+                    new AudioRef { Description = "speaking voice", FilePath = voicePath },
+                    new AudioRef { Description = "singing voice", FilePath = singingPath }
+                ]
+            };
+            var podPath = Path.Combine(work, "Sarah.mrpod");
+            var cacheFolder = Path.Combine(work, "cache");
+
+            CharacterPodStore.Save(subject, podPath);
+            var loaded = CharacterPodStore.Load(podPath, cacheFolder);
+
+            Assert.Equal(2, loaded.Audios.Count);
+            Assert.Equal("speaking voice", loaded.Audios[0].Description);
+            Assert.Equal("singing voice", loaded.Audios[1].Description);
+            Assert.NotEqual(loaded.Audios[0].FilePath, loaded.Audios[1].FilePath);
+            Assert.Equal([1, 1], File.ReadAllBytes(loaded.Audios[0].FilePath!));
+            Assert.Equal([2, 2, 2], File.ReadAllBytes(loaded.Audios[1].FilePath!));
         }
         finally
         {
@@ -95,7 +137,7 @@ public class CharacterPodStoreTests
             Assert.NotEqual(original.Id, loaded.Id);
             Assert.NotEqual(original.Pictures[0].Id, loaded.Pictures[0].Id);
             Assert.NotEqual(original.Pictures[1].Id, loaded.Pictures[1].Id);
-            Assert.NotEqual(original.Audio!.Id, loaded.Audio!.Id);
+            Assert.NotEqual(original.Audios[0].Id, loaded.Audios[0].Id);
         }
         finally
         {

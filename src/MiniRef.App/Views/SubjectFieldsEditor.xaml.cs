@@ -8,7 +8,7 @@ using MiniRef.Core.Services;
 
 namespace MiniRef.App.Views;
 
-/// <summary>The Classification/Name/Description/Pictures/Audio/Retention fields for editing one
+/// <summary>The Classification/Name/Description/Pictures/Audios/Retention fields for editing one
 /// Subject -- extracted out of <see cref="SubjectEditor"/> so the same fields can be reused
 /// standalone (no list-membership, no move/remove-from-list chrome) in a Character Pod editor.
 /// Its DataContext is expected to be the Subject being edited, inherited from whatever host places
@@ -37,9 +37,15 @@ public partial class SubjectFieldsEditor : UserControl
             s.Pictures.Remove(picture);
     }
 
-    private void ToggleAudio_Click(object sender, RoutedEventArgs e)
+    private void AddAudio_Click(object sender, RoutedEventArgs e)
     {
-        if (Subject is { } s) s.Audio = s.Audio is null ? new AudioRef() : null;
+        if (Subject is { } s) s.Audios.Add(new AudioRef());
+    }
+
+    private void RemoveAudio_Click(object sender, RoutedEventArgs e)
+    {
+        if (Subject is { } s && sender is Button { DataContext: AudioRef audio })
+            s.Audios.Remove(audio);
     }
 
     private void BrowsePicture_Click(object sender, RoutedEventArgs e)
@@ -61,7 +67,7 @@ public partial class SubjectFieldsEditor : UserControl
 
     private void BrowseAudio_Click(object sender, RoutedEventArgs e)
     {
-        if (Subject?.Audio is not { } audio) return;
+        if (sender is not Button { DataContext: AudioRef audio }) return;
         if (Settings is not { } settings) return;
 
         var dialog = new OpenFileDialog

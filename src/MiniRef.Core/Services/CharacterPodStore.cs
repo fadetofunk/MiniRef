@@ -55,15 +55,15 @@ public static class CharacterPodStore
             });
         }
 
-        if (subject.Audio is { } audio)
+        foreach (var audio in subject.Audios)
         {
-            manifest.Audio = new CharacterPodManifest.AudioEntry
+            manifest.Audios.Add(new CharacterPodManifest.AudioEntry
             {
                 Description = audio.Description,
                 Retention = audio.Retention,
                 RetentionNote = audio.RetentionNote,
                 ArchiveFileName = AddFileEntry(zip, audio.FilePath, audio.Id)
-            };
+            });
         }
 
         var manifestEntry = zip.CreateEntry("manifest.json");
@@ -136,15 +136,15 @@ public static class CharacterPodStore
             });
         }
 
-        if (manifest.Audio is { } audioEntry)
+        foreach (var audioEntry in manifest.Audios)
         {
-            subject.Audio = new AudioRef
+            subject.Audios.Add(new AudioRef
             {
                 Description = audioEntry.Description,
                 Retention = audioEntry.Retention,
                 RetentionNote = audioEntry.RetentionNote,
                 FilePath = ExtractFileEntry(zip, audioEntry.ArchiveFileName, cacheFolder, podFilePath)
-            };
+            });
         }
 
         return subject;

@@ -17,7 +17,7 @@ public class PromptComposerTests
             Name = "Sarah Connor",
             Description = "Linda Hamilton as Sarah Connor",
             Pictures = [new PictureRef { Description = "front view" }, new PictureRef { Description = "profile" }],
-            Audio = new AudioRef { Description = "" },
+            Audios = [new AudioRef { Description = "" }],
             Retention = VisualRetentionType.FullyPreserved,
             RetentionNote = "the character identity and clothing are retained."
         };
@@ -103,7 +103,7 @@ public class PromptComposerTests
         Assert.Equal(3, numbering.SubjectNumber(nightclub.Id));
         Assert.Equal([1, 2], sarah.Pictures.Select(p => numbering.PictureNumber(p.Id)));
         Assert.Equal(3, numbering.PictureNumber(terminator.Pictures[0].Id));
-        Assert.Equal(1, numbering.AudioNumber(sarah.Audio!.Id));
+        Assert.Equal(1, numbering.AudioNumber(sarah.Audios[0].Id));
 
         // Appearances must match the guide's own retention_analysis exactly.
         Assert.Equal([1, 2, 5], numbering.SubjectAppearances[sarah.Id]);
@@ -166,6 +166,34 @@ public class PromptComposerTests
         // Every subject appears in the single shot.
         foreach (var subject in project.Subjects)
             Assert.Equal([1], numbering.SubjectAppearances[subject.Id]);
+    }
+
+    [Fact]
+    public void MultipleAudiosOnOneSubject_EachGetOwnTagAndVoiceTimbreSentence()
+    {
+        var singer = new Subject
+        {
+            Name = "Singer",
+            Description = "a jazz singer",
+            Audios =
+            [
+                new AudioRef { Description = "speaking voice" },
+                new AudioRef { Description = "singing voice" }
+            ]
+        };
+
+        var project = new SceneProject
+        {
+            Subjects = [singer],
+            Shots = [new Shot { Text = "<Subject 1> steps up to the microphone." }]
+        };
+
+        var numbering = ReferenceNumberer.Compute(project);
+        Assert.Equal([1, 2], singer.Audios.Select(a => numbering.AudioNumber(a.Id)));
+
+        var prompt = PromptComposer.Compose(project);
+        Assert.Contains("<Audio 1> is the voice-timbre reference for <Subject 1> (S1), speaking voice.", prompt);
+        Assert.Contains("<Audio 2> is the voice-timbre reference for <Subject 1> (S1), singing voice.", prompt);
     }
 
     [Fact]

@@ -58,17 +58,20 @@ public static partial class ComfyWorkflowImporter
             FillNameIfBlank(subject, tagged.Name);
         }
 
+        var audiosByNumber = new Dictionary<int, AudioRef>();
         foreach (var tagged in FindTaggedNodes(nodes, "LoadAudio", "Audio"))
         {
             if (!defs.AudioOwners.TryGetValue(tagged.Number, out var subjectNumber)) continue;
             if (subjectNumber < 1 || subjectNumber > project.Subjects.Count) continue;
 
             var subject = project.Subjects[subjectNumber - 1];
-            subject.Audio = new AudioRef
+            var audio = new AudioRef
             {
                 Description = tagged.Detail ?? "",
                 FilePath = ResolveInputFile(GetArrayWidget(tagged.Node, 0), comfyInputFolder)
             };
+            subject.Audios.Add(audio);
+            audiosByNumber[tagged.Number] = audio;
             FillNameIfBlank(subject, tagged.Name);
         }
 
@@ -82,7 +85,7 @@ public static partial class ComfyWorkflowImporter
             });
         }
 
-        ApplyRetention(project, sections.GetValueOrDefault("retention_analysis", ""), defs.AudioOwners);
+        ApplyRetention(project, sections.GetValueOrDefault("retention_analysis", ""), audiosByNumber);
 
         var (taskTypes, summary) = ParseSummary(sections.GetValueOrDefault("summary", ""));
         project.TaskTypes = taskTypes;
@@ -301,7 +304,7 @@ public static partial class ComfyWorkflowImporter
 
     // ---- retention_analysis: one line per <Subject N>/<Audio N>/<Video N> that has a retention set ----
 
-    private static void ApplyRetention(SceneProject project, string content, IReadOnlyDictionary<int, int> audioOwners)
+    private static void ApplyRetention(SceneProject project, string content, IReadOnlyDictionary<int, AudioRef> audiosByNumber)
     {
         if (string.IsNullOrWhiteSpace(content)) return;
 
@@ -326,12 +329,9 @@ public static partial class ComfyWorkflowImporter
                 }
                 case "Audio":
                 {
-                    if (!audioOwners.TryGetValue(n, out var subjectNumber)) break;
-                    if (subjectNumber < 1 || subjectNumber > project.Subjects.Count) break;
+                    if (!audiosByNumber.TryGetValue(n, out var audio)) break;
                     var m = LevelNoteRegex().Match(rest);
                     if (!m.Success || !EnumFormatting.TryParseAudioRetentionToken(m.Groups["level"].Value, out var level)) break;
-                    var audio = project.Subjects[subjectNumber - 1].Audio;
-                    if (audio is null) break;
                     audio.Retention = level;
                     audio.RetentionNote = m.Groups["note"].Success ? m.Groups["note"].Value.Trim() : "";
                     break;

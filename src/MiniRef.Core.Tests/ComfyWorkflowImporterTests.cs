@@ -18,7 +18,7 @@ public class ComfyWorkflowImporterTests
             Name = "Sarah Connor",
             Description = "a weary survivor with a buzzcut",
             Pictures = [new PictureRef { Description = "front view" }, new PictureRef { Description = "profile" }],
-            Audio = new AudioRef { Description = "a hoarse, exhausted voice" }
+            Audios = [new AudioRef { Description = "a hoarse, exhausted voice" }]
         };
         var terminator = new Subject
         {
@@ -51,8 +51,8 @@ public class ComfyWorkflowImporterTests
         Assert.Equal(2, importedSarah.Pictures.Count);
         Assert.Contains(importedSarah.Pictures, p => p.Description == "front view");
         Assert.Contains(importedSarah.Pictures, p => p.Description == "profile");
-        Assert.NotNull(importedSarah.Audio);
-        Assert.Equal("a hoarse, exhausted voice", importedSarah.Audio!.Description);
+        Assert.Single(importedSarah.Audios);
+        Assert.Equal("a hoarse, exhausted voice", importedSarah.Audios[0].Description);
 
         var importedTerminator = imported.Subjects[1];
         Assert.Equal("The Terminator", importedTerminator.Name);
@@ -122,12 +122,15 @@ public class ComfyWorkflowImporterTests
             // has a retention set (see BuildRetentionAnalysis's early continue) -- so this needs a
             // subject-level retention too, even though it's not itself under test here.
             Retention = VisualRetentionType.FullyPreserved,
-            Audio = new AudioRef
-            {
-                Description = "smoky alto voice",
-                Retention = AudioRetentionType.PartiallyCopy,
-                RetentionNote = "same voice and pacing, new lyrics"
-            }
+            Audios =
+            [
+                new AudioRef
+                {
+                    Description = "smoky alto voice",
+                    Retention = AudioRetentionType.PartiallyCopy,
+                    RetentionNote = "same voice and pacing, new lyrics"
+                }
+            ]
         };
         var project = new SceneProject
         {
@@ -138,10 +141,38 @@ public class ComfyWorkflowImporterTests
         var workflowJson = ComfyWorkflowExporter.Export(template, project);
         var imported = ComfyWorkflowImporter.Import(workflowJson);
 
-        var importedAudio = imported.Subjects[0].Audio;
-        Assert.NotNull(importedAudio);
-        Assert.Equal(AudioRetentionType.PartiallyCopy, importedAudio!.Retention);
+        var importedAudio = Assert.Single(imported.Subjects[0].Audios);
+        Assert.Equal(AudioRetentionType.PartiallyCopy, importedAudio.Retention);
         Assert.Equal("same voice and pacing, new lyrics", importedAudio.RetentionNote);
+    }
+
+    [Fact]
+    public void Import_RoundTripsMultipleAudiosOnOneSubject()
+    {
+        var template = LoadTemplate();
+        var subject = new Subject
+        {
+            Name = "Singer",
+            Description = "a jazz singer",
+            Audios =
+            [
+                new AudioRef { Description = "speaking voice" },
+                new AudioRef { Description = "singing voice" }
+            ]
+        };
+        var project = new SceneProject
+        {
+            Subjects = [subject],
+            Shots = [new Shot { Text = "<Subject 1> steps up to the microphone." }]
+        };
+
+        var workflowJson = ComfyWorkflowExporter.Export(template, project);
+        var imported = ComfyWorkflowImporter.Import(workflowJson);
+
+        var importedSinger = Assert.Single(imported.Subjects);
+        Assert.Equal(2, importedSinger.Audios.Count);
+        Assert.Contains(importedSinger.Audios, a => a.Description == "speaking voice");
+        Assert.Contains(importedSinger.Audios, a => a.Description == "singing voice");
     }
 
     [Fact]
@@ -215,7 +246,7 @@ public class ComfyWorkflowImporterTests
             Name = "Sarah",
             Description = "a survivor",
             Pictures = [new PictureRef { Description = "front view" }],
-            Audio = new AudioRef { Description = "her voice" }
+            Audios = [new AudioRef { Description = "her voice" }]
         };
         var project = new SceneProject
         {
@@ -238,7 +269,7 @@ public class ComfyWorkflowImporterTests
             var imported = ComfyWorkflowImporter.Import(workflowJson, comfyInputFolder: tempInputFolder);
 
             Assert.Equal(Path.Combine(tempInputFolder, "sarah.png"), imported.Subjects[0].Pictures[0].FilePath);
-            Assert.Equal(Path.Combine(tempInputFolder, "sarah.mp3"), imported.Subjects[0].Audio!.FilePath);
+            Assert.Equal(Path.Combine(tempInputFolder, "sarah.mp3"), imported.Subjects[0].Audios[0].FilePath);
         }
         finally
         {

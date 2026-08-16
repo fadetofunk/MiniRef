@@ -17,7 +17,7 @@ public class ComfyWorkflowExporterTests
             Name = "Sarah Connor",
             Description = "a weary survivor",
             Pictures = [new PictureRef { Description = "front view" }, new PictureRef { Description = "profile" }],
-            Audio = new AudioRef { Description = "" }
+            Audios = [new AudioRef { Description = "" }]
         };
         var terminator = new Subject
         {

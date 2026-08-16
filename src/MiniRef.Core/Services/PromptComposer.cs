@@ -69,7 +69,7 @@ public static class PromptComposer
 
             sentences.Add($"{ReferenceNumberer.SubjectTag(n)} is {description}");
 
-            if (subject.Audio is { } audio)
+            foreach (var audio in subject.Audios)
             {
                 var audioTag = ReferenceNumberer.AudioTag(numbering.AudioNumber(audio.Id));
                 var subjectTag = ReferenceNumberer.SubjectTag(n);
@@ -118,8 +118,9 @@ public static class PromptComposer
 
             lines.Add($"{ReferenceNumberer.SubjectTag(n)} (appears in {shotList}): {subject.Retention.Value.ToPromptToken()}{note}.");
 
-            if (subject.Audio is { Retention: { } audioRetention } audio)
+            foreach (var audio in subject.Audios)
             {
+                if (audio.Retention is not { } audioRetention) continue;
                 var audioNote = string.IsNullOrWhiteSpace(audio.RetentionNote) ? "" : $" - {audio.RetentionNote.Trim()}";
                 lines.Add($"{ReferenceNumberer.AudioTag(numbering.AudioNumber(audio.Id))}: {audioRetention.ToPromptToken()}{audioNote}.");
             }
