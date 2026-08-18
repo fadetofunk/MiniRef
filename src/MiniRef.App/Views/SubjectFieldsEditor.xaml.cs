@@ -34,7 +34,7 @@ public partial class SubjectFieldsEditor : UserControl
     private void RemovePicture_Click(object sender, RoutedEventArgs e)
     {
         if (Subject is { } s && sender is Button { DataContext: PictureRef picture })
-            s.Pictures.Remove(picture);
+            RemoveAndRenumber(s, () => s.Pictures.Remove(picture));
     }
 
     private void AddAudio_Click(object sender, RoutedEventArgs e)
@@ -45,7 +45,31 @@ public partial class SubjectFieldsEditor : UserControl
     private void RemoveAudio_Click(object sender, RoutedEventArgs e)
     {
         if (Subject is { } s && sender is Button { DataContext: AudioRef audio })
-            s.Audios.Remove(audio);
+            RemoveAndRenumber(s, () => s.Audios.Remove(audio));
+    }
+
+    /// <summary>Removing a picture/audio can shift every other &lt;Picture N&gt;/&lt;Audio N&gt;
+    /// number after it -- rewrite any already-typed tag referencing a survivor whose number
+    /// changed, so e.g. deleting &lt;Picture 5&gt; doesn't leave "&lt;Picture 6&gt;" elsewhere
+    /// pointing at a picture that no longer exists at that number. Only meaningful when this
+    /// Subject actually belongs to the active project's Cast &amp; Setting list -- inside the
+    /// standalone Character Pod editor there's no enclosing project's shots/summary to rewrite,
+    /// and (critically) MainViewModel.Project there would be whatever project happens to be open
+    /// behind the pod editor, not the pod's own isolated Subject.</summary>
+    private void RemoveAndRenumber(Subject subject, Action remove)
+    {
+        var mainViewModel = Application.Current.MainWindow?.DataContext as MainViewModel;
+        var project = mainViewModel?.Project;
+        if (project is null || !project.Subjects.Contains(subject))
+        {
+            remove();
+            return;
+        }
+
+        var before = ReferenceNumberer.Compute(project);
+        remove();
+        var after = ReferenceNumberer.Compute(project);
+        ReferenceNumberer.RewriteTagsAfterRenumbering(project, before, after);
     }
 
     private void BrowsePicture_Click(object sender, RoutedEventArgs e)

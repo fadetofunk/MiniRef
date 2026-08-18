@@ -100,6 +100,74 @@ public static partial class ReferenceNumberer
         };
     }
 
+    /// <summary>Rewrites every &lt;Subject N&gt;/&lt;Picture N&gt;/&lt;Audio N&gt;/&lt;Video N&gt;
+    /// tag in the project's shot text, summary, and ambient-sound fields to follow along when a
+    /// list mutation (a deletion, a reorder) shifts what number a surviving reference now has --
+    /// e.g. removing &lt;Picture 5&gt; renumbers every "&lt;Picture 6&gt;" elsewhere in the project
+    /// down to "&lt;Picture 5&gt;", instead of silently leaving it pointing at a picture that no
+    /// longer exists at that number. Compare <paramref name="before"/>/<paramref name="after"/>
+    /// snapshots taken immediately around the mutation (e.g. both from <see cref="Compute"/>) --
+    /// only numbers that actually changed for a still-surviving Id get rewritten; a removed
+    /// reference's own tag is left as dangling text for the user to notice and clean up, same as
+    /// today, since there's no sensible number to rewrite it to.</summary>
+    public static void RewriteTagsAfterRenumbering(SceneProject project, ReferenceNumbering before, ReferenceNumbering after)
+    {
+        var subjectMap = BuildRenumberMap(before.SubjectNumbers, after.SubjectNumbers);
+        var pictureMap = BuildRenumberMap(before.PictureNumbers, after.PictureNumbers);
+        var audioMap = BuildRenumberMap(before.AudioNumbers, after.AudioNumbers);
+        var videoMap = BuildRenumberMap(before.VideoNumbers, after.VideoNumbers);
+
+        if (subjectMap.Count == 0 && pictureMap.Count == 0 && audioMap.Count == 0 && videoMap.Count == 0)
+            return;
+
+        foreach (var shot in project.Shots)
+            shot.Text = RewriteTags(shot.Text, subjectMap, pictureMap, audioMap, videoMap);
+
+        project.Summary = RewriteTags(project.Summary, subjectMap, pictureMap, audioMap, videoMap);
+        project.OverallSoundscape = RewriteTags(project.OverallSoundscape, subjectMap, pictureMap, audioMap, videoMap);
+        project.NonDiegeticMusic = RewriteTags(project.NonDiegeticMusic, subjectMap, pictureMap, audioMap, videoMap);
+    }
+
+    /// <summary>Old number -> new number, for every Id present in both snapshots whose number
+    /// actually changed. An Id missing from <paramref name="after"/> (it was just removed) or
+    /// unchanged contributes nothing -- there's nothing to rewrite it to.</summary>
+    private static Dictionary<int, int> BuildRenumberMap(IReadOnlyDictionary<Guid, int> before, IReadOnlyDictionary<Guid, int> after)
+    {
+        var map = new Dictionary<int, int>();
+        foreach (var (id, oldNumber) in before)
+        {
+            if (after.TryGetValue(id, out var newNumber) && newNumber != oldNumber)
+                map[oldNumber] = newNumber;
+        }
+        return map;
+    }
+
+    private static string RewriteTags(
+        string text, IReadOnlyDictionary<int, int> subjectMap, IReadOnlyDictionary<int, int> pictureMap,
+        IReadOnlyDictionary<int, int> audioMap, IReadOnlyDictionary<int, int> videoMap)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+
+        return AnyTagRegex().Replace(text, match =>
+        {
+            var map = match.Groups["kind"].Value switch
+            {
+                "Subject" => subjectMap,
+                "Picture" => pictureMap,
+                "Audio" => audioMap,
+                "Video" => videoMap,
+                _ => null
+            };
+            if (map is null) return match.Value;
+
+            var oldNumber = int.Parse(match.Groups["n"].Value);
+            return map.TryGetValue(oldNumber, out var newNumber) ? $"<{match.Groups["kind"].Value} {newNumber}>" : match.Value;
+        });
+    }
+
+    [GeneratedRegex(@"<(?<kind>Subject|Picture|Audio|Video) (?<n>\d+)>")]
+    private static partial Regex AnyTagRegex();
+
     private static Dictionary<Guid, List<int>> ComputeSubjectAppearances(
         SceneProject project,
         IReadOnlyDictionary<Guid, int> subjectNumbers,

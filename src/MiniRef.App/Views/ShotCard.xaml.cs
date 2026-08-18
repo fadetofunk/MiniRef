@@ -57,11 +57,35 @@ public partial class ShotCard : UserControl
     /// just re-serialize to the same Shot.Text, but this skips that redundant work.</summary>
     private bool _suppressTextChanged;
 
+    /// <summary>Guards the reverse direction: while ShotTextBox_TextChanged is pushing the live
+    /// document into Shot.Text, the resulting Shot.PropertyChanged shouldn't trigger its own
+    /// rebuild -- the document it would rebuild from is the exact one already on screen, and
+    /// replacing it mid-keystroke would reset the caret. A rebuild is only needed when Shot.Text
+    /// changes from somewhere else entirely, e.g. reference tags getting renumbered after a
+    /// picture/audio/subject was deleted or reordered elsewhere in the app.</summary>
+    private bool _isPushingTextToModel;
+
     public ShotCard()
     {
         InitializeComponent();
-        DataContextChanged += (_, _) => RebuildShotDocument();
-        Unloaded += (_, _) => { UnsubscribeAll(); UnsubscribeAllVideos(); };
+        DataContextChanged += (_, e) =>
+        {
+            if (e.OldValue is Shot oldShot) oldShot.PropertyChanged -= Shot_PropertyChanged;
+            if (e.NewValue is Shot newShot) newShot.PropertyChanged += Shot_PropertyChanged;
+            RebuildShotDocument();
+        };
+        Unloaded += (_, _) =>
+        {
+            if (Shot is { } shot) shot.PropertyChanged -= Shot_PropertyChanged;
+            UnsubscribeAll();
+            UnsubscribeAllVideos();
+        };
+    }
+
+    private void Shot_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_isPushingTextToModel) return;
+        if (e.PropertyName == nameof(Shot.Text)) RebuildShotDocument();
     }
 
     private Shot? Shot => DataContext as Shot;
@@ -204,7 +228,16 @@ public partial class ShotCard : UserControl
     {
         if (_suppressTextChanged) return;
         if (Shot is not { } shot) return;
-        shot.Text = ShotRichTextBuilder.Serialize(ShotTextBox.Document);
+
+        _isPushingTextToModel = true;
+        try
+        {
+            shot.Text = ShotRichTextBuilder.Serialize(ShotTextBox.Document);
+        }
+        finally
+        {
+            _isPushingTextToModel = false;
+        }
     }
 
     /// <summary>Enter inserts a soft line break instead of WPF's default new-Paragraph behavior,

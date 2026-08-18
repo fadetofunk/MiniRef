@@ -207,13 +207,26 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void RemoveSubject(Subject subject) => Project.Subjects.Remove(subject);
+    private void RemoveSubject(Subject subject) => MutateAndRenumber(() => Project.Subjects.Remove(subject));
 
     [RelayCommand]
-    private void MoveSubjectUp(Subject subject) => Move(Project.Subjects, subject, -1);
+    private void MoveSubjectUp(Subject subject) => MutateAndRenumber(() => Move(Project.Subjects, subject, -1));
 
     [RelayCommand]
-    private void MoveSubjectDown(Subject subject) => Move(Project.Subjects, subject, 1);
+    private void MoveSubjectDown(Subject subject) => MutateAndRenumber(() => Move(Project.Subjects, subject, 1));
+
+    /// <summary>Wraps a mutation that can shift &lt;Subject N&gt;/&lt;Picture N&gt;/&lt;Audio N&gt;/
+    /// &lt;Video N&gt; numbers (removing or reordering a subject/video) so every already-typed tag
+    /// referencing a survivor whose number changed gets rewritten to match, instead of silently
+    /// going stale -- e.g. deleting &lt;Picture 5&gt; would otherwise leave every "&lt;Picture 6&gt;"
+    /// elsewhere pointing at a picture that no longer exists at that number.</summary>
+    private void MutateAndRenumber(Action mutate)
+    {
+        var before = ReferenceNumberer.Compute(Project);
+        mutate();
+        var after = ReferenceNumberer.Compute(Project);
+        ReferenceNumberer.RewriteTagsAfterRenumbering(Project, before, after);
+    }
 
     [RelayCommand]
     private void BrowseVideoFile(VideoRef video)
@@ -256,7 +269,7 @@ public partial class MainViewModel : ObservableObject
     private void AddSourceVideo() => Project.SourceVideos.Add(new VideoRef());
 
     [RelayCommand]
-    private void RemoveSourceVideo(VideoRef video) => Project.SourceVideos.Remove(video);
+    private void RemoveSourceVideo(VideoRef video) => MutateAndRenumber(() => Project.SourceVideos.Remove(video));
 
     [RelayCommand]
     private void NewProject()
