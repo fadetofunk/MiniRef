@@ -4,16 +4,21 @@ using MiniRef.Core.Models;
 
 namespace MiniRef.Core.Services;
 
-/// <summary>Reconstructs a SceneProject from a ComfyUI workflow that <see cref="ComfyWorkflowExporter"/>
-/// produced. This only works on workflows this tool itself exported -- it reads back the exact literal
-/// phrasing PromptComposer writes into the "Input Text (Prompt)" node, plus the &lt;Picture N&gt;/
-/// &lt;Audio N&gt;/&lt;Video N&gt; tagged LoadImage/LoadAudio/VHS_LoadVideoPath node titles, both of
-/// which are deterministic byproducts of exporting a project, not something a hand-authored or
-/// third-party workflow would happen to match. A handful of fields simply never make it into the
-/// exported workflow at all (Subject.Name for a subject with no picture/audio, Classification, and
-/// TaskTypes when Summary was left blank, since PromptComposer omits the whole summary section then)
-/// -- those come back at their defaults rather than erroring, since round-tripping everything else is
-/// far more useful than refusing the whole import over a few UI-only fields.</summary>
+/// <summary>Reconstructs a SceneProject from a ComfyUI workflow's prompt text and node titles.
+/// It's tuned for workflows <see cref="ComfyWorkflowExporter"/> produced -- it reads back the exact
+/// literal phrasing PromptComposer writes into the "Input Text (Prompt)" node, plus the
+/// &lt;Picture N&gt;/&lt;Audio N&gt;/&lt;Video N&gt; tagged LoadImage/LoadAudio/VHS_LoadVideoPath
+/// node titles -- but it also does a best effort on a hand-written or AI-drafted prompt that only
+/// follows the MiniMax H3 guide's own conventions: section headers written "name: ..." on one line
+/// rather than "name\n...", and free-form "&lt;Subject N&gt; is ..." sentences that mention their
+/// &lt;Picture k&gt; inline instead of via the canonical "whose appearance comes from" clause. Any
+/// &lt;Subject N&gt; referenced anywhere in the prompt becomes a real Subject on import even when
+/// subject_definitions was missing or unparseable, so nothing gets silently dropped. A handful of
+/// fields simply never make it into the exported workflow at all (Subject.Name for a subject with
+/// no picture/audio, Classification, and TaskTypes when Summary was left blank, since PromptComposer
+/// omits the whole summary section then) -- those come back at their defaults rather than erroring,
+/// since round-tripping everything else is far more useful than refusing the whole import over a few
+/// UI-only fields.</summary>
 public static partial class ComfyWorkflowImporter
 {
     private static readonly string[] SectionNames =
@@ -21,6 +26,16 @@ public static partial class ComfyWorkflowImporter
         "subject_definitions", "summary", "retention_analysis",
         "detailed_description", "overall_soundscape", "non_diegetic_music"
     ];
+
+    /// <summary>Header names a hand-written or AI-drafted prompt uses for a section MiniRef knows
+    /// under a different name. The MiniMax H3 ref2va guide calls the shot-by-shot block
+    /// "integrated_multimodal_description" (audio and video woven together) where the plain video
+    /// guide -- and PromptComposer -- call it "detailed_description"; both parse identically.</summary>
+    private static readonly Dictionary<string, string> SectionAliases = new()
+    {
+        ["integrated_multimodal_description"] = "detailed_description",
+        ["multimodal_description"] = "detailed_description",
+    };
 
     /// <param name="comfyInputFolder">ComfyUI's "input" folder, if known -- used to resolve
     /// LoadImage/LoadAudio filenames and VHS_LoadVideoPath paths back to real files on disk.
@@ -33,17 +48,53 @@ public static partial class ComfyWorkflowImporter
         var nodes = root["nodes"]?.AsArray()
             ?? throw new InvalidDataException("Workflow has no 'nodes' array -- this doesn't look like a ComfyUI workflow.");
 
+        return BuildProject(ExtractPromptText(nodes), nodes, comfyInputFolder);
+    }
+
+    /// <summary>Builds a SceneProject straight from the six-section MiniMax H3 prompt text, with no
+    /// ComfyUI workflow around it -- for pasting in a prompt drafted elsewhere. Sections may be
+    /// written "name\n..." or the guide's "name: ..." one-liner. Every &lt;Subject N&gt;/&lt;Picture
+    /// N&gt;/&lt;Audio N&gt;/&lt;Video N&gt; the text declares becomes a real reference (with no file
+    /// attached -- there are no LoadImage/LoadAudio nodes to resolve one from), and spoken &lt;d&gt;
+    /// lines in the shots come across as structured dialogue so speaker (Sx) IDs and, once a voice
+    /// reference is added, the voice-timbre sentence all compose automatically.</summary>
+    public static SceneProject ImportPromptText(string promptText)
+    {
+        if (string.IsNullOrWhiteSpace(promptText))
+            throw new InvalidDataException("There's no prompt text to import.");
+
+        return BuildProject(promptText, nodes: null, comfyInputFolder: null);
+    }
+
+    /// <param name="nodes">The ComfyUI workflow's node array, or null when importing bare prompt
+    /// text. Picture/audio/video file paths, node-title character names, the resolution selector,
+    /// and the duration node all come from nodes -- a null here leaves those at their defaults
+    /// while everything the prompt text itself carries still comes through.</param>
+    private static SceneProject BuildProject(string promptText, JsonArray? nodes, string? comfyInputFolder)
+    {
+        // Text pasted from a Windows control (the Import Prompt Text box especially -- a WPF TextBox
+        // hands back "\r\n") arrives with CRLF line endings, which the section-header and
+        // paragraph-break regexes below match on "\n\n" and would silently miss -- collapsing the
+        // whole prompt into subject_definitions and dumping it into the subjects' appearance text.
+        // Normalize to "\n" once here so every downstream parser sees the shape it expects.
+        promptText = promptText.Replace("\r\n", "\n").Replace('\r', '\n');
+
         var project = new SceneProject();
         project.Subjects.Clear();
 
-        var promptNode = FindNodeByType(nodes, "PrimitiveStringMultiline");
-        var promptText = promptNode is not null ? GetArrayWidget(promptNode, 0) ?? "" : "";
         var sections = ParseSections(promptText);
 
         var defs = ParseSubjectDefinitions(sections.GetValueOrDefault("subject_definitions", ""));
         foreach (var def in defs.Subjects.OrderBy(s => s.Number))
             project.Subjects.Add(new Subject { Description = def.Description });
 
+        // Guarantee a real Subject for every <Subject N> the workflow mentions anywhere -- even when
+        // subject_definitions was missing, truncated, or phrased in a way ParseSubjectDefinitions
+        // couldn't read -- so the picture/audio/shot wiring below always has somewhere to land.
+        for (var have = project.Subjects.Count; have < HighestReferencedNumber(promptText, "Subject"); have++)
+            project.Subjects.Add(new Subject());
+
+        var picturesFromNodes = new HashSet<int>();
         foreach (var tagged in FindTaggedNodes(nodes, "LoadImage", "Picture"))
         {
             if (!defs.PictureOwners.TryGetValue(tagged.Number, out var subjectNumber)) continue;
@@ -55,7 +106,19 @@ public static partial class ComfyWorkflowImporter
                 Description = tagged.Detail ?? "",
                 FilePath = ResolveInputFile(GetArrayWidget(tagged.Node, 0), comfyInputFolder)
             });
+            picturesFromNodes.Add(tagged.Number);
             FillNameIfBlank(subject, tagged.Name);
+        }
+
+        // A <Picture N> that subject_definitions attributes to a subject but that has no LoadImage
+        // node behind it (every owned picture, when importing bare prompt text) still becomes a
+        // real, file-less PictureRef -- otherwise the reference would silently vanish on import.
+        // No-op for a workflow this tool exported, where every owned picture has a matching node.
+        foreach (var (pictureNumber, subjectNumber) in defs.PictureOwners.OrderBy(kv => kv.Key))
+        {
+            if (picturesFromNodes.Contains(pictureNumber)) continue;
+            if (subjectNumber < 1 || subjectNumber > project.Subjects.Count) continue;
+            project.Subjects[subjectNumber - 1].Pictures.Add(new PictureRef());
         }
 
         var audiosByNumber = new Dictionary<int, AudioRef>();
@@ -75,6 +138,17 @@ public static partial class ComfyWorkflowImporter
             FillNameIfBlank(subject, tagged.Name);
         }
 
+        // Same fallback as pictures: an <Audio N> the voice-timbre sentence attributes to a subject
+        // but with no LoadAudio node behind it still becomes a real, file-less AudioRef.
+        foreach (var (audioNumber, subjectNumber) in defs.AudioOwners.OrderBy(kv => kv.Key))
+        {
+            if (audiosByNumber.ContainsKey(audioNumber)) continue;
+            if (subjectNumber < 1 || subjectNumber > project.Subjects.Count) continue;
+            var audio = new AudioRef();
+            project.Subjects[subjectNumber - 1].Audios.Add(audio);
+            audiosByNumber[audioNumber] = audio;
+        }
+
         foreach (var tagged in FindTaggedNodes(nodes, "VHS_LoadVideoPath", "Video").OrderBy(t => t.Number))
         {
             var path = tagged.Node["widgets_values"]?["video"]?.GetValue<string>();
@@ -83,6 +157,14 @@ public static partial class ComfyWorkflowImporter
                 Description = defs.VideoDescriptions.GetValueOrDefault(tagged.Number, tagged.Detail ?? ""),
                 FilePath = ResolveVideoFile(path, comfyInputFolder)
             });
+        }
+
+        // No VHS_LoadVideoPath nodes to walk when importing bare prompt text -- take the <Video N>
+        // list straight from subject_definitions instead.
+        if (nodes is null)
+        {
+            foreach (var (_, description) in defs.VideoDescriptions.OrderBy(kv => kv.Key))
+                project.SourceVideos.Add(new VideoRef { Description = description });
         }
 
         ApplyRetention(project, sections.GetValueOrDefault("retention_analysis", ""), audiosByNumber);
@@ -94,10 +176,14 @@ public static partial class ComfyWorkflowImporter
         project.OverallSoundscape = sections.GetValueOrDefault("overall_soundscape", "");
         project.NonDiegeticMusic = sections.GetValueOrDefault("non_diegetic_music", "");
 
-        var (visualStyle, shots) = ParseDetailedDescription(sections.GetValueOrDefault("detailed_description", ""));
+        var (visualStyle, shots) = ParseDetailedDescription(sections.GetValueOrDefault("detailed_description", ""), project.Subjects);
         project.VisualStyle = visualStyle;
         foreach (var shot in shots)
             project.Shots.Add(shot);
+
+        // Resolution and duration live in workflow nodes only -- nothing in the prompt text
+        // carries them, so a bare-text import just keeps SceneProject's defaults.
+        if (nodes is null) return project;
 
         if (FindNodeByType(nodes, "ResolutionSelector") is { } resolutionNode)
         {
@@ -124,9 +210,31 @@ public static partial class ComfyWorkflowImporter
             subject.Name = name.Trim();
     }
 
-    private static JsonObject? FindNodeByType(JsonArray nodes, string type) => nodes
+    private static JsonObject? FindNodeByType(JsonArray? nodes, string type) => nodes?
         .Select(n => n!.AsObject())
         .FirstOrDefault(n => n["type"]?.GetValue<string>() == type);
+
+    /// <summary>The composed prompt normally lives in the "Input Text (Prompt)"
+    /// PrimitiveStringMultiline node, but a hand-built workflow often skips that and types straight
+    /// into the reference node's own "prompt" widget (widget 0) -- fall back to it.</summary>
+    private static string ExtractPromptText(JsonArray nodes)
+    {
+        var primitive = FindNodeByType(nodes, "PrimitiveStringMultiline");
+        if (primitive is not null && GetArrayWidget(primitive, 0) is { Length: > 0 } text)
+            return text;
+
+        var refNode = FindNodeByType(nodes, "MiniMaxH3ReferenceToVideo");
+        return (refNode is not null ? GetArrayWidget(refNode, 0) : null) ?? "";
+    }
+
+    private static int HighestReferencedNumber(string text, string kind)
+    {
+        var highest = 0;
+        foreach (Match m in Regex.Matches(text, $@"<{Regex.Escape(kind)} (\d+)>"))
+            if (int.TryParse(m.Groups[1].Value, out var n) && n > highest)
+                highest = n;
+        return highest;
+    }
 
     private static string? GetArrayWidget(JsonObject node, int index)
     {
@@ -155,8 +263,10 @@ public static partial class ComfyWorkflowImporter
 
     private readonly record struct TaggedNode(JsonObject Node, int Number, string? Name, string? Detail);
 
-    private static IEnumerable<TaggedNode> FindTaggedNodes(JsonArray nodes, string nodeType, string tagKind)
+    private static IEnumerable<TaggedNode> FindTaggedNodes(JsonArray? nodes, string nodeType, string tagKind)
     {
+        if (nodes is null) yield break;
+
         foreach (var raw in nodes)
         {
             var node = raw!.AsObject();
@@ -185,12 +295,15 @@ public static partial class ComfyWorkflowImporter
         var result = new Dictionary<string, string>();
         if (string.IsNullOrEmpty(promptText)) return result;
 
+        // Accept both the shape PromptComposer emits ("name\n<content>") and the MiniMax H3 guide's
+        // own "name: <content>" one-liner shape that a hand-written or AI-drafted prompt tends to use,
+        // plus any known alias header name (mapped back to its canonical section here).
         var headers = new List<(string Name, int Start, int ContentStart)>();
-        foreach (var name in SectionNames)
+        foreach (var name in SectionNames.Concat(SectionAliases.Keys))
         {
-            var m = Regex.Match(promptText, $@"(?:^|\n\n){Regex.Escape(name)}\n");
+            var m = Regex.Match(promptText, $@"(?:^|\n\n){Regex.Escape(name)}[ \t]*:?[ \t]*\n?");
             if (m.Success)
-                headers.Add((name, m.Index, m.Index + m.Length));
+                headers.Add((SectionAliases.GetValueOrDefault(name, name), m.Index, m.Index + m.Length));
         }
         headers.Sort((a, b) => a.Start.CompareTo(b.Start));
 
@@ -232,22 +345,18 @@ public static partial class ComfyWorkflowImporter
             {
                 case "Subject":
                 {
-                    var isMatch = SubjectIsRegex().Match(rest);
-                    if (!isMatch.Success) break;
-                    var body = rest[isMatch.Length..];
+                    // Canonical: "<Subject N> is <desc>, whose appearance comes from <Picture a> and <Picture b>."
+                    // Lenient:   "<Subject N> is <free text that mentions <Picture k> somewhere inline>".
+                    // Drop a leading "is ", claim every <Picture k> the sentence names, and cut the
+                    // canonical appearance clause (redundant once the pictures are linked) if present.
+                    var body = SubjectIsRegex().Match(rest) is { Success: true } isMatch ? rest[isMatch.Length..] : rest;
+
+                    foreach (Match pm in PictureTagRegex().Matches(body))
+                        result.PictureOwners[int.Parse(pm.Groups["n"].Value)] = n;
 
                     var appearance = AppearanceClauseRegex().Match(body);
-                    string description;
-                    if (appearance.Success)
-                    {
-                        description = body[..appearance.Index].TrimEnd();
-                        foreach (Match pm in PictureTagRegex().Matches(appearance.Groups["pics"].Value))
-                            result.PictureOwners[int.Parse(pm.Groups["n"].Value)] = n;
-                    }
-                    else
-                    {
-                        description = StripTrailingPeriod(body.TrimEnd());
-                    }
+                    var description = appearance.Success ? body[..appearance.Index] : body;
+                    description = StripTrailingPeriod(description.Trim()).TrimEnd(',', ';', ' ');
 
                     result.Subjects.Add(new SubjectDef(n, description));
                     break;
@@ -277,11 +386,13 @@ public static partial class ComfyWorkflowImporter
     /// <summary>Splits subject_definitions/retention_analysis content into one piece per sentence.
     /// Only splits at a period immediately followed by a new tag -- not at every tag occurrence --
     /// since the audio sentence ("&lt;Audio N&gt; is the voice-timbre reference for &lt;Subject M&gt;
-    /// (S#)...") embeds a second tag mid-sentence that must stay part of the same chunk.</summary>
+    /// (S#)...") embeds a second tag mid-sentence that must stay part of the same chunk. &lt;Picture N&gt;
+    /// is a boundary too: a guide-style retention_analysis puts a "&lt;Picture N&gt; (...): level - note."
+    /// line right after the subject's, and it must not get swallowed into the subject's note.</summary>
     private static IEnumerable<string> SplitIntoSentences(string content) =>
         SentenceBoundaryRegex().Split(content).Where(s => s.Length > 0);
 
-    [GeneratedRegex(@"(?<=\.)\s+(?=<(?:Subject|Audio|Video) \d+>)")]
+    [GeneratedRegex(@"(?<=\.)\s+(?=<(?:Subject|Audio|Video|Picture) \d+>)")]
     private static partial Regex SentenceBoundaryRegex();
 
     [GeneratedRegex(@"^<(?<kind>Subject|Audio|Video) (?<n>\d+)>")]
@@ -380,7 +491,7 @@ public static partial class ComfyWorkflowImporter
 
     // ---- detailed_description: optional visual-style sentence, then "[Shot N] At TS, text" per shot ----
 
-    private static (VisualStyle? Style, List<Shot> Shots) ParseDetailedDescription(string content)
+    private static (VisualStyle? Style, List<Shot> Shots) ParseDetailedDescription(string content, IReadOnlyList<Subject> subjects)
     {
         var shots = new List<Shot>();
         if (string.IsNullOrWhiteSpace(content)) return (null, shots);
@@ -393,27 +504,147 @@ public static partial class ComfyWorkflowImporter
             style = parsedStyle;
             body = body[styleMatch.Length..];
         }
+        else if (TryScanVisualStyle(body, out var scannedStyle))
+        {
+            style = scannedStyle;
+        }
 
         foreach (Match shotMatch in ShotChunkRegex().Matches(body))
         {
-            var shotText = shotMatch.Groups["body"].Value.Trim();
-            var timestamp = "";
-
-            var tsMatch = TimestampPrefixRegex().Match(shotText);
-            if (tsMatch.Success)
+            foreach (var (timestamp, text) in SplitShotIntoBeats(shotMatch.Groups["body"].Value.Trim()))
             {
-                timestamp = tsMatch.Groups["ts"].Value;
-                shotText = shotText[tsMatch.Length..];
+                var shot = new Shot { Timestamp = timestamp, Text = text };
+                ExtractDialogue(shot, subjects);
+                shots.Add(shot);
             }
-
-            shots.Add(new Shot { Timestamp = timestamp, Text = shotText });
         }
 
         return (style, shots);
     }
 
+    /// <summary>A prompt sometimes writes a "single continuous shot" as one [Shot N] label followed
+    /// by several blank-line-separated paragraphs, each its own timed beat ("At approximately
+    /// 00:04.000, ...", "From 00:09.000 to 00:12.000, ..."). MiniRef models one Shot per beat, so
+    /// those are split out here -- but only when a later paragraph actually opens with a timestamp
+    /// clause. A [Shot N] whose paragraphs are just continuous prose with no timestamps stays a
+    /// single shot, exactly as before, and so does a single-paragraph [Shot N].</summary>
+    private static IEnumerable<(string Timestamp, string Text)> SplitShotIntoBeats(string shotBody)
+    {
+        var paragraphs = ParagraphBreakRegex().Split(shotBody)
+            .Select(p => p.Trim())
+            .Where(p => p.Length > 0)
+            .ToList();
+
+        var beatMatches = paragraphs.Select(p => BeatTimestampPrefixRegex().Match(p)).ToList();
+
+        if (paragraphs.Count < 2 || !beatMatches.Skip(1).Any(m => m.Success))
+        {
+            // Pre-split behavior: one Shot for the whole [Shot N], narrow leading "At TS, " only.
+            var text = shotBody.Trim();
+            var m = TimestampPrefixRegex().Match(text);
+            yield return m.Success ? (m.Groups["ts"].Value, text[m.Length..]) : ("", text);
+            yield break;
+        }
+
+        for (var i = 0; i < paragraphs.Count; i++)
+        {
+            var m = beatMatches[i];
+            yield return m.Success
+                ? (m.Groups["ts"].Value, paragraphs[i][m.Length..].Trim())
+                : ("", paragraphs[i]);
+        }
+    }
+
+    [GeneratedRegex(@"\n[ \t]*\n")]
+    private static partial Regex ParagraphBreakRegex();
+
+    /// <summary>The leading timestamp clause of a timed beat -- "At 00:04.000, ", "At approximately
+    /// 00:04.000, ", "From 00:09.000 to 00:12.000, " -- only when it opens the paragraph. A range
+    /// keeps its start time. Broader than <see cref="TimestampPrefixRegex"/> (which stays as the
+    /// narrow whole-shot prefix, unchanged for existing single-shot imports).</summary>
+    [GeneratedRegex(@"^(?:At|From)\s+(?:approximately\s+|around\s+|about\s+|roughly\s+)?(?<ts>\d{1,2}:\d{2}(?:[.:]\d{1,3})?)(?:\s+to\s+\d{1,2}:\d{2}(?:[.:]\d{1,3})?)?,\s*", RegexOptions.IgnoreCase)]
+    private static partial Regex BeatTimestampPrefixRegex();
+
+    /// <summary>Pulls spoken "&lt;d&gt;[Language] ...&lt;/d&gt;" runs out of a shot's narrative into
+    /// structured <see cref="DialogueLine"/>s, leaving the text itself untouched (the &lt;d&gt; run
+    /// stays where the model needs it). The speaker is the &lt;Subject N&gt; tag nearest the line --
+    /// the guide's phrasing always names the speaker right before "says, &lt;d&gt;..." -- falling
+    /// back to the nearest one after it, and skipped entirely only when the shot names no subject
+    /// at all. Structured dialogue is what drives speaker (Sx) numbering and, once the speaker has
+    /// a voice reference, the auto-generated voice-timbre sentence -- so a pasted-in prompt gets
+    /// both without the lines being re-entered by hand.</summary>
+    private static void ExtractDialogue(Shot shot, IReadOnlyList<Subject> subjects)
+    {
+        if (subjects.Count == 0) return;
+
+        foreach (Match block in DialogueBlockRegex().Matches(shot.Text))
+        {
+            var speakerNumber = NearestSubjectNumber(shot.Text, block.Index);
+            if (speakerNumber < 1 || speakerNumber > subjects.Count) continue;
+
+            var inner = DialogueInnerRegex().Match(block.Groups["inner"].Value);
+            var text = inner.Groups["text"].Value.Trim();
+            if (text.Length == 0) continue;
+
+            shot.Dialogue.Add(new DialogueLine
+            {
+                SpeakerSubjectId = subjects[speakerNumber - 1].Id,
+                Language = inner.Groups["lang"].Success ? inner.Groups["lang"].Value.Trim() : "English",
+                Text = text
+            });
+        }
+    }
+
+    /// <summary>The &lt;Subject N&gt; nearest <paramref name="position"/> -- the last one starting
+    /// at or before it, or failing that the first one after it. 0 when the text names none.</summary>
+    private static int NearestSubjectNumber(string text, int position)
+    {
+        var before = 0;
+        foreach (Match m in SubjectTagRegex().Matches(text))
+        {
+            var n = int.Parse(m.Groups["n"].Value);
+            if (m.Index <= position) before = n;
+            else return before != 0 ? before : n;
+        }
+        return before;
+    }
+
+    [GeneratedRegex(@"<d>(?<inner>.*?)</d>", RegexOptions.Singleline)]
+    private static partial Regex DialogueBlockRegex();
+
+    [GeneratedRegex(@"^\s*(?:\[(?<lang>[^\]]+)\]\s*)?(?<text>.*?)\s*$", RegexOptions.Singleline)]
+    private static partial Regex DialogueInnerRegex();
+
+    [GeneratedRegex(@"<Subject (?<n>\d+)>")]
+    private static partial Regex SubjectTagRegex();
+
     [GeneratedRegex(@"^The target video is a (?<style>.+?) scene\.\s*")]
     private static partial Regex VisualStylePrefixRegex();
+
+    /// <summary>Fallback for a detailed_description that doesn't open with the canonical
+    /// "The target video is a X scene." -- e.g. "The target video is in a cinematic live-action
+    /// style with a desaturated palette." Scans only the lead-in before the first [Shot N] for any
+    /// known style token, taking the earliest-occurring one so "cinematic live-action" resolves to
+    /// the word that leads.</summary>
+    private static bool TryScanVisualStyle(string body, out VisualStyle style)
+    {
+        style = default;
+        var firstShot = body.IndexOf("[Shot ", StringComparison.Ordinal);
+        var leadIn = firstShot >= 0 ? body[..firstShot] : body;
+
+        var earliest = int.MaxValue;
+        foreach (var candidate in Enum.GetValues<VisualStyle>())
+        {
+            var at = leadIn.IndexOf(candidate.ToPromptToken(), StringComparison.OrdinalIgnoreCase);
+            if (at >= 0 && at < earliest)
+            {
+                earliest = at;
+                style = candidate;
+            }
+        }
+
+        return earliest != int.MaxValue;
+    }
 
     [GeneratedRegex(@"\[Shot \d+\]\s*(?<body>.*?)(?=\[Shot \d+\]|\z)", RegexOptions.Singleline)]
     private static partial Regex ShotChunkRegex();
