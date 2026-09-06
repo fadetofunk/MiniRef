@@ -44,6 +44,9 @@
             </DockPanel>
 
             <StackPanel Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}">
+                <Button Content="Replace with Pod..." HorizontalAlignment="Left" Margin="0,2,0,0"
+                        Click="ReplaceWithPod_Click"
+                        ToolTip="Overwrite this subject's name, appearance, pictures, and voice references from a Character Pod, keeping its &lt;Subject N&gt; number and every tag that uses it."/>
                 <views:SubjectFieldsEditor/>
             </StackPanel>
         </StackPanel>

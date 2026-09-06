@@ -47,4 +47,9 @@ public partial class SubjectEditor : UserControl
     {
         if (Subject is { } s) MainViewModel?.MoveSubjectDownCommand.Execute(s);
     }
+
+    private void ReplaceWithPod_Click(object sender, RoutedEventArgs e)
+    {
+        if (Subject is { } s) MainViewModel?.ReplaceSubjectWithPodCommand.Execute(s);
+    }
 }

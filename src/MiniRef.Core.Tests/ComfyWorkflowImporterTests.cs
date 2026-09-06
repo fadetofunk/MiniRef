@@ -294,6 +294,110 @@ public class ComfyWorkflowImporterTests
     }
 
     [Fact]
+    public void Import_ReadsAGuideStylePromptWithColonSectionHeaders()
+    {
+        // A hand-written / AI-drafted workflow that only follows the MiniMax H3 guide's own
+        // conventions: sections are "name: ..." one-liners rather than "name\n...", the subject
+        // sentence names its <Picture 1> inline instead of via "whose appearance comes from", and
+        // the style isn't phrased as the canonical "The target video is a X scene."
+        const string workflow = """
+        {
+          "nodes": [
+            {
+              "id": 1,
+              "type": "PrimitiveStringMultiline",
+              "title": "Input Text (Prompt)",
+              "widgets_values": ["subject_definitions: <Subject 1> is Superwoman as shown in <Picture 1>, a weary female superhero.\n\nsummary: [reference generation] Superwoman stands among stacked shipping containers at a port.\n\nretention_analysis: <Subject 1> (appears in [Shot 1], [Shot 2]): fully_preserved - blonde hair and torn red-and-blue costume kept. <Picture 1> (character and environment reference): fully_preserved - the container-port backdrop is maintained.\n\ndetailed_description: The target video is in a cinematic live-action style with a desaturated industrial palette. [Shot 1] A low-angle shot establishes <Subject 1> leaning against a rusted container. [Shot 2] At 00:04.000, the shot cuts to her knees buckling as she collapses to the ground.\n\noverall_soundscape: Low industrial port wind with distant gull cries.\n\nnon_diegetic_music: A sparse sustained low cello drone."]
+            },
+            { "id": 2, "type": "LoadImage", "title": "<Picture 1> — Superwoman", "widgets_values": ["ComfyUI_00036_.png", "image"] },
+            { "id": 3, "type": "ResolutionSelector", "title": "Resolution Selector (Size)", "widgets_values": ["16:9 (Widescreen)", 0.4, 32] },
+            { "id": 4, "type": "PrimitiveFloat", "title": "Float (Duration)", "widgets_values": [12] }
+          ],
+          "links": []
+        }
+        """;
+
+        var imported = ComfyWorkflowImporter.Import(workflow);
+
+        var subject = Assert.Single(imported.Subjects);
+        Assert.Equal("Superwoman", subject.Name);
+        Assert.Equal("Superwoman as shown in <Picture 1>, a weary female superhero", subject.Description);
+        Assert.Single(subject.Pictures);
+        Assert.Equal(VisualRetentionType.FullyPreserved, subject.Retention);
+        Assert.Equal("blonde hair and torn red-and-blue costume kept", subject.RetentionNote);
+
+        Assert.Equal("Superwoman stands among stacked shipping containers at a port.", imported.Summary);
+        Assert.True(imported.TaskTypes.HasFlag(TaskType.ReferenceGeneration));
+
+        Assert.Equal(VisualStyle.Cinematic, imported.VisualStyle);
+        Assert.Equal(2, imported.Shots.Count);
+        Assert.Equal("A low-angle shot establishes <Subject 1> leaning against a rusted container.", imported.Shots[0].Text);
+        Assert.Equal("", imported.Shots[0].Timestamp);
+        Assert.Equal("00:04.000", imported.Shots[1].Timestamp);
+        Assert.Equal("the shot cuts to her knees buckling as she collapses to the ground.", imported.Shots[1].Text);
+
+        Assert.Equal("Low industrial port wind with distant gull cries.", imported.OverallSoundscape);
+        Assert.Equal("A sparse sustained low cello drone.", imported.NonDiegeticMusic);
+        Assert.Equal(WorkflowAspectRatio.Widescreen16x9, imported.AspectRatio);
+        Assert.Equal(0.4, imported.Megapixels);
+        Assert.Equal(12.0, imported.DurationSeconds);
+    }
+
+    [Fact]
+    public void Import_ReadsShotsFromAn_integrated_multimodal_description_Section()
+    {
+        // The MiniMax H3 ref2va guide names the shot-by-shot block "integrated_multimodal_description"
+        // rather than "detailed_description"; shots must still come through. (Regression: a workflow
+        // using this header imported with zero shots.)
+        const string workflow = """
+        {
+          "nodes": [
+            {
+              "id": 1,
+              "type": "PrimitiveStringMultiline",
+              "widgets_values": ["subject_definitions: <Subject 1> is the female superhero in <Picture 1>, whose appearance is defined by that reference image.\n\nintegrated_multimodal_description: [Shot 1] At 00:00.000, a medium shot frames <Subject 1> bound in chains to a marble column. [Shot 2] At 00:03.500, the shot cuts to a close-up as the chains scrape against the stone.\n\noverall_soundscape: Low ambient party chatter and the clink of glassware."]
+            }
+          ],
+          "links": []
+        }
+        """;
+
+        var imported = ComfyWorkflowImporter.Import(workflow);
+
+        Assert.Equal(2, imported.Shots.Count);
+        Assert.Equal("00:00.000", imported.Shots[0].Timestamp);
+        Assert.Equal("a medium shot frames <Subject 1> bound in chains to a marble column.", imported.Shots[0].Text);
+        Assert.Equal("00:03.500", imported.Shots[1].Timestamp);
+        Assert.Equal("the shot cuts to a close-up as the chains scrape against the stone.", imported.Shots[1].Text);
+        Assert.Equal("Low ambient party chatter and the clink of glassware.", imported.OverallSoundscape);
+    }
+
+    [Fact]
+    public void Import_CreatesASubjectForEverySubjectNumberReferenced_EvenWithNoSubjectDefinitions()
+    {
+        // subject_definitions is absent entirely, but three <Subject N> are referenced in the shots --
+        // all three come back as real (blank) subjects rather than being dropped.
+        const string workflow = """
+        {
+          "nodes": [
+            {
+              "id": 1,
+              "type": "PrimitiveStringMultiline",
+              "widgets_values": ["detailed_description: [Shot 1] <Subject 1> and <Subject 3> meet on a bridge while <Subject 2> watches from the far bank."]
+            }
+          ],
+          "links": []
+        }
+        """;
+
+        var imported = ComfyWorkflowImporter.Import(workflow);
+
+        Assert.Equal(3, imported.Subjects.Count);
+        Assert.All(imported.Subjects, s => Assert.Equal("", s.Description));
+        Assert.Single(imported.Shots);
+    }
+
+    [Fact]
     public void Import_Throws_WhenGivenSomethingWithoutANodesArray()
     {
         Assert.Throws<InvalidDataException>(() => ComfyWorkflowImporter.Import("""{"foo": "bar"}"""));

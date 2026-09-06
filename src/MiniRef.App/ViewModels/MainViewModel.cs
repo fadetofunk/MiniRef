@@ -206,6 +206,44 @@ public partial class MainViewModel : ObservableObject
         return !string.IsNullOrWhiteSpace(Settings.CharacterPodsFolder);
     }
 
+    /// <summary>Swaps every detail of an existing subject -- name, appearance, pictures, voice
+    /// references, retention -- for those from a Character Pod, keeping the subject in place so its
+    /// &lt;Subject N&gt; number, and every already-typed tag that uses it, stays valid. Picture/audio
+    /// reference numbers are rewritten afterwards the same way a delete or reorder does it, since a
+    /// pod almost never carries the same count the subject had. The point: import a prompt where a
+    /// character speaks but has no voice, drop in a pod that carries one, and the voice-timbre
+    /// sentence and (Sx) sequencing fill themselves in.</summary>
+    [RelayCommand]
+    private void ReplaceSubjectWithPod(Subject subject)
+    {
+        if (!EnsurePodsFolderConfigured()) return;
+
+        var dialog = new OpenFileDialog
+        {
+            Filter = $"Character Pod (*{CharacterPodStore.FileExtension})|*{CharacterPodStore.FileExtension}|All files (*.*)|*.*",
+            InitialDirectory = Settings.CharacterPodsFolder,
+            ClientGuid = CharacterPodDialogGuid
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        if (!TryLoadPod(dialog.FileName, out var pod)) return;
+
+        MutateAndRenumber(() =>
+        {
+            subject.Classification = pod.Classification;
+            subject.Name = pod.Name;
+            subject.Description = pod.Description;
+            subject.Retention = pod.Retention;
+            subject.RetentionNote = pod.RetentionNote;
+
+            subject.Pictures.Clear();
+            foreach (var picture in pod.Pictures) subject.Pictures.Add(picture);
+
+            subject.Audios.Clear();
+            foreach (var audio in pod.Audios) subject.Audios.Add(audio);
+        });
+    }
+
     [RelayCommand]
     private void RemoveSubject(Subject subject) => MutateAndRenumber(() => Project.Subjects.Remove(subject));
 
@@ -491,9 +529,9 @@ public partial class MainViewModel : ObservableObject
             "Export ComfyUI Workflow", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
-    /// <summary>Reconstructs a project from a ComfyUI workflow this tool previously exported --
-    /// best-effort, since it's reading the composed prompt text and node titles back rather than
-    /// any dedicated round-trip format. Always opens as a new tab; never replaces what's open.</summary>
+    /// <summary>Reconstructs a project from a ComfyUI workflow's prompt text and node titles --
+    /// best-effort, tuned for workflows this tool exported but tolerant of a hand-written or
+    /// AI-drafted MiniMax H3 prompt. Always opens as a new tab; never replaces what's open.</summary>
     [RelayCommand]
     private void ImportComfyWorkflow()
     {
@@ -532,7 +570,7 @@ public partial class MainViewModel : ObservableObject
         catch (InvalidDataException ex)
         {
             MessageBox.Show(
-                $"Couldn't import that workflow:\n{ex.Message}\n\nImport only works on a workflow this tool itself exported.",
+                $"Couldn't import that workflow:\n{ex.Message}\n\nThe file needs to be a ComfyUI workflow (a JSON file with a 'nodes' array).",
                 "Import ComfyUI Workflow", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
@@ -544,11 +582,51 @@ public partial class MainViewModel : ObservableObject
         SaveSession();
 
         MessageBox.Show(
-            "Workflow imported as a new project. This is a best-effort reconstruction from the exported prompt text " +
-            "and node titles, not a dedicated round-trip format -- a few UI-only details (subject classification, and " +
-            "task type checkboxes if the summary was left blank when it was exported) don't carry over and are left " +
-            "at their defaults. Double-check the result before continuing.",
+            "Workflow imported as a new project. This is a best-effort reconstruction from the prompt text and node " +
+            "titles, not a dedicated round-trip format -- a Subject is created for every <Subject N> the workflow " +
+            "mentions, but a few UI-only details (subject classification, and task type checkboxes if the summary was " +
+            "left blank) don't carry over and are left at their defaults. Double-check the result before continuing.",
             "Import ComfyUI Workflow", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    /// <summary>Builds a new project from a six-section MiniMax H3 prompt drafted elsewhere and
+    /// pasted in -- the shot-by-shot text, subjects, picture/audio slots, and spoken &lt;d&gt; lines
+    /// all come across; reference files don't (there's nothing to resolve them from), so each
+    /// picture/voice slot lands empty for a Character Pod to fill via "Replace with Pod...".
+    /// Always opens as a new tab; never replaces what's open.</summary>
+    [RelayCommand]
+    private void ImportPromptText()
+    {
+        var dialog = new ImportPromptTextDialog { Owner = Application.Current.MainWindow };
+        if (dialog.ShowDialog() != true) return;
+
+        SceneProject imported;
+        try
+        {
+            imported = ComfyWorkflowImporter.ImportPromptText(dialog.PromptText);
+        }
+        catch (InvalidDataException ex)
+        {
+            MessageBox.Show(
+                $"Couldn't import that prompt:\n{ex.Message}",
+                "Import Prompt Text", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        imported.Name = "Imported Prompt";
+        var tab = new ProjectTab(imported);
+        OpenProjects.Add(tab);
+        ActiveTab = tab;
+        SaveSession();
+
+        MessageBox.Show(
+            "Prompt imported as a new project. A Subject was created for every <Subject N> the text mentions, " +
+            "with an empty <Picture N>/<Audio N> slot for each reference it declares -- use \"Replace with Pod...\" " +
+            "on a subject to fill those in. Spoken <d> lines came across as structured dialogue, so speaker (Sx) IDs " +
+            "and the voice-timbre sentence compose automatically once a subject has a voice reference. Task type, " +
+            "duration, aspect ratio, and megapixels aren't part of the prompt text and stay at their defaults. " +
+            "Double-check the result before continuing.",
+            "Import Prompt Text", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     /// <summary>Undoes the filename shape Export leaves behind (SanitizeFileName'd project name,
