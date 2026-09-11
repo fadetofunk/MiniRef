@@ -593,7 +593,10 @@ public partial class MainViewModel : ObservableObject
     /// pasted in -- the shot-by-shot text, subjects, picture/audio slots, and spoken &lt;d&gt; lines
     /// all come across; reference files don't (there's nothing to resolve them from), so each
     /// picture/voice slot lands empty for a Character Pod to fill via "Replace with Pod...".
-    /// Always opens as a new tab; never replaces what's open.</summary>
+    /// Opens as a new tab, unless a project with the chosen name is already open and the user
+    /// chooses to replace its contents. Even then the replacement is an unsaved project with no
+    /// file link -- saving it prompts for a location like any new project, so an import that
+    /// turns out wrong never silently overwrites the original's .mmref.json on disk.</summary>
     [RelayCommand]
     private void ImportPromptText()
     {
@@ -613,14 +616,54 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        imported.Name = "Imported Prompt";
+        imported.Name = dialog.ProjectName;
+
+        // If a project with this name is already open, offer to swap its contents for the import
+        // rather than leaving two same-named tabs behind. The replacement carries no file link,
+        // so saving it is a deliberate "save as" -- a bad import can't clobber the original's
+        // .mmref.json. "No" opens the import as its own separate tab instead.
+        var existing = OpenProjects.FirstOrDefault(t =>
+            string.Equals(t.Project.Name.Trim(), imported.Name, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            var savedNote = existing.FilePath is null
+                ? ""
+                : $"\n\nThe existing \"{Path.GetFileName(existing.FilePath)}\" on disk is left untouched -- " +
+                  "the replaced tab becomes unsaved, and saving it will ask where to put it.";
+
+            var choice = MessageBox.Show(
+                $"A project named \"{imported.Name}\" is already open.\n\n" +
+                "Yes  - replace that tab's contents with the imported prompt\n" +
+                "No   - open the import as a separate tab\n" +
+                "Cancel - stop, change nothing" + savedNote,
+                "Import Prompt Text", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+
+            if (choice == MessageBoxResult.Cancel) return;
+            if (choice == MessageBoxResult.Yes)
+            {
+                var index = OpenProjects.IndexOf(existing);
+                var replacement = new ProjectTab(imported);
+                OpenProjects.Insert(index, replacement);
+                OpenProjects.Remove(existing);
+                ActiveTab = replacement;
+                SaveSession();
+                ShowPromptImportedMessage();
+                return;
+            }
+        }
+
         var tab = new ProjectTab(imported);
         OpenProjects.Add(tab);
         ActiveTab = tab;
         SaveSession();
 
+        ShowPromptImportedMessage();
+    }
+
+    private static void ShowPromptImportedMessage()
+    {
         MessageBox.Show(
-            "Prompt imported as a new project. A Subject was created for every <Subject N> the text mentions, " +
+            "Prompt imported. A Subject was created for every <Subject N> the text mentions, " +
             "with an empty <Picture N>/<Audio N> slot for each reference it declares -- use \"Replace with Pod...\" " +
             "on a subject to fill those in. Spoken <d> lines came across as structured dialogue, so speaker (Sx) IDs " +
             "and the voice-timbre sentence compose automatically once a subject has a voice reference. Task type, " +

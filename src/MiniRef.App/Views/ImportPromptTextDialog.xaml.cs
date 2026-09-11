@@ -4,9 +4,10 @@ namespace MiniRef.App.Views;
 
 public partial class ImportPromptTextDialog : Window
 {
-    /// <summary>The raw prompt the user pasted -- read by MainViewModel.ImportPromptText only when
-    /// the dialog closed with DialogResult == true.</summary>
+    /// <summary>The raw prompt the user pasted, and the name to give the new project -- both read by
+    /// MainViewModel.ImportPromptText only when the dialog closed with DialogResult == true.</summary>
     public string PromptText { get; private set; } = "";
+    public string ProjectName { get; private set; } = "Imported Prompt";
 
     public ImportPromptTextDialog()
     {
@@ -17,6 +18,8 @@ public partial class ImportPromptTextDialog : Window
     private void Import_Click(object sender, RoutedEventArgs e)
     {
         PromptText = PromptTextBox.Text;
+        var name = ProjectNameTextBox.Text.Trim();
+        ProjectName = name.Length == 0 ? "Imported Prompt" : name;
         DialogResult = true;
         Close();
     }
