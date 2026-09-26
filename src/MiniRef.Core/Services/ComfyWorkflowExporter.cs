@@ -27,6 +27,11 @@ public static class ComfyWorkflowExporter
     private const string DurationNodeTitle = "Float (Duration)";
     private const string OutputFilenamePrefix = "%date:yyyy-MM-dd%/ComfyUI";
 
+    /// <summary>Appended to the title of every node cloned for a continuation segment
+    /// ("Float (Duration) — Segment 2"), which is how <see cref="ComfyWorkflowImporter"/> finds a
+    /// chain's later segments again. Segment 1's own nodes keep their original titles.</summary>
+    public const string SegmentTitleMarker = " — Segment ";
+
     /// <summary>One overridable model-loader slot found in the template. <see cref="Key"/> is
     /// stable across template re-exports and is what AppSettings.ModelOverrides is keyed by.
     /// <see cref="ModelsFolder"/> is the ComfyUI models subfolder this file type lives in
@@ -229,11 +234,15 @@ public static class ComfyWorkflowExporter
             widgets[0] = project.DurationSeconds;
         }
 
+        var ids = new IdAllocator(nextNodeId, nextLinkId);
+        if (project.SegmentCount > 1)
+            AppendContinuationSegments(nodes, links, project, ids);
+
         if (modelOverrides is { Count: > 0 })
             ApplyModelOverrides(nodes, links, refNode, modelOverrides);
 
-        root["last_node_id"] = nextNodeId - 1;
-        root["last_link_id"] = nextLinkId - 1;
+        root["last_node_id"] = ids.NextNodeId - 1;
+        root["last_link_id"] = ids.NextLinkId - 1;
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
@@ -241,6 +250,230 @@ public static class ComfyWorkflowExporter
     private static JsonObject? FindNodeByType(JsonArray nodes, string type) => nodes
         .Select(n => n!.AsObject())
         .FirstOrDefault(n => n["type"]?.GetValue<string>() == type);
+
+    private sealed class IdAllocator(int nextNodeId, int nextLinkId)
+    {
+        public int NextNodeId { get; private set; } = nextNodeId;
+        public int NextLinkId { get; private set; } = nextLinkId;
+        public int TakeNodeId() => NextNodeId++;
+        public int TakeLinkId() => NextLinkId++;
+    }
+
+    /// <summary>Node types every segment shares instead of getting its own copy: the model/encoder/VAE
+    /// loaders, the sampler and scheduler settings, the resolution selector, and all the cast
+    /// loaders -- which is how a reference picture is set once and reused by every segment.</summary>
+    private static readonly HashSet<string> SharedNodeTypes =
+    [
+        UnetLoaderNodeType, ClipLoaderNodeType, VaeLoaderNodeType, ResolutionSelectorNodeType,
+        "KSamplerSelect", "BasicScheduler", "LoadImage", "LoadAudio", "VHS_LoadVideoPath", "MarkdownNote"
+    ];
+
+    /// <summary>Numbers read back out of the workflow JSON can be either parsed values (whole numbers
+    /// that may carry a double) or ones this exporter just built as ints -- read both.</summary>
+    private static int ToInt(JsonNode? node)
+    {
+        var value = node!.AsValue();
+        return value.TryGetValue<int>(out var i) ? i : (int)value.GetValue<double>();
+    }
+
+    private static double ToDouble(JsonNode? node)
+    {
+        var value = node!.AsValue();
+        return value.TryGetValue<double>(out var d) ? d : value.GetValue<int>();
+    }
+
+    /// <summary>Turns the single-clip graph into a chain: for every continuation segment, duplicates
+    /// the per-clip sampling stack (reference node, prompt, duration, noise, guider, sampler, decode,
+    /// create/save video) and feeds it the previous stack's decoded frames and audio as &lt;Video 1&gt;
+    /// and its soundtrack -- entirely in memory, no file round trip -- so loading the one workflow and
+    /// queueing it renders every clip back to back. The loaders, sampler/scheduler settings,
+    /// resolution, and cast (pictures, voices) are shared, not copied.
+    ///
+    /// The stack is found by walking back from SaveVideo until a shared node type is reached, rather
+    /// than by a hard-coded node list, so it follows the template if it gains or loses a node. Run
+    /// after segment 1's own cast has been wired, so every clone links to those same loaders.</summary>
+    private static void AppendContinuationSegments(JsonArray nodes, JsonArray links, SceneProject project, IdAllocator ids)
+    {
+        var saveNode = FindNodeByType(nodes, SaveVideoNodeType)
+            ?? throw new InvalidDataException($"Template is missing a '{SaveVideoNodeType}' node, so there's no clip to chain from.");
+        var stackIds = CollectSegmentStack(nodes, links, ToInt(saveNode["id"]));
+        var stackSet = stackIds.ToHashSet();
+        var byId = nodes.Select(n => n!.AsObject()).ToDictionary(n => ToInt(n["id"]));
+
+        int RoleId(string type) => stackIds.FirstOrDefault(id => byId[id]["type"]!.GetValue<string>() == type);
+        var refOriginal = RoleId(ReferenceNodeType);
+        var decodeOriginal = RoleId("VAEDecode");
+        var audioDecodeOriginal = RoleId("VAEDecodeAudio");
+        var promptOriginal = RoleId(PromptNodeType);
+        var saveOriginal = RoleId(SaveVideoNodeType);
+        var durationOriginal = stackIds.FirstOrDefault(id => byId[id]["type"]!.GetValue<string>() == DurationNodeType
+            && byId[id]["title"]?.GetValue<string>() == DurationNodeTitle);
+        if (refOriginal == 0 || decodeOriginal == 0)
+            throw new InvalidDataException("Template's clip stack has no reference node or video decode node to chain through.");
+
+        // Segment 1 keeps its nodes as they are; just label its output so the chain reads clearly.
+        RetitleAndPrefix(byId[saveOriginal], 1, "Save Video");
+
+        // Where the clones sit: to the right of the original stack, one stack-width per segment.
+        var xs = stackIds.Select(id => ToDouble(byId[id]["pos"]!.AsArray()[0])).ToList();
+        var spanX = xs.Max() - xs.Min() + 700;
+
+        var previousDecode = decodeOriginal;
+        var previousAudioDecode = audioDecodeOriginal;
+
+        // Snapshot the original stack's links once; every clone is stamped from these.
+        var stackLinks = links.Select(l => l!.AsArray())
+            .Where(l => stackSet.Contains(ToInt(l[3])))
+            .Select(l => (Id: ToInt(l[0]), Origin: ToInt(l[1]), OriginSlot: ToInt(l[2]), Target: ToInt(l[3]), TargetSlot: ToInt(l[4]), Type: l[5]!.GetValue<string>()))
+            .ToList();
+
+        for (var k = 1; k < project.SegmentCount; k++)
+        {
+            var segment = project.Continuations[k - 1];
+            var view = project.ForSegment(k);
+
+            // -- clone the stack's nodes with fresh ids and blank link bookkeeping
+            var idMap = new Dictionary<int, int>();
+            var clones = new Dictionary<int, JsonObject>();
+            foreach (var originalId in stackIds)
+            {
+                var clone = (JsonObject)byId[originalId].DeepClone();
+                var newId = ids.TakeNodeId();
+                clone["id"] = newId;
+                idMap[originalId] = newId;
+                clones[newId] = clone;
+
+                foreach (var input in clone["inputs"]?.AsArray() ?? [])
+                    input!["link"] = null;
+                foreach (var output in clone["outputs"]?.AsArray() ?? [])
+                    output!["links"] = null;
+
+                var pos = clone["pos"]!.AsArray();
+                clone["pos"] = new JsonArray(ToDouble(pos[0]) + spanX * k, ToDouble(pos[1]));
+
+                var baseTitle = clone["title"]?.GetValue<string>() is { Length: > 0 } t ? t : clone["type"]!.GetValue<string>();
+                clone["title"] = $"{baseTitle}{SegmentTitleMarker}{k + 1}";
+
+                nodes.Add(clone);
+                byId[newId] = clone;
+            }
+
+            // -- re-create every link into the stack: between clones, or from the same shared node
+            foreach (var link in stackLinks)
+            {
+                var newLinkId = ids.TakeLinkId();
+                var originIsClone = stackSet.Contains(link.Origin);
+                var newOrigin = originIsClone ? idMap[link.Origin] : link.Origin;
+                var newTarget = idMap[link.Target];
+
+                links.Add(BuildLink(newLinkId, newOrigin, link.OriginSlot, newTarget, link.TargetSlot, link.Type));
+                clones[newTarget]["inputs"]!.AsArray()[link.TargetSlot]!["link"] = newLinkId;
+                AddOutputLink(byId[newOrigin], link.OriginSlot, newLinkId);
+            }
+
+            var cloneRef = clones[idMap[refOriginal]];
+            var cloneRefId = idMap[refOriginal];
+
+            // -- segment 1's own source videos don't belong to a continuation: its <Video 1> is the
+            //    previous clip, wired below
+            foreach (var input in cloneRef["inputs"]!.AsArray())
+            {
+                var name = input!["name"]?.GetValue<string>() ?? "";
+                if (input["link"] is { } linkId
+                    && (name.StartsWith("ref_videos.ref_video_", StringComparison.Ordinal)
+                        || name.StartsWith("ref_video_audios.ref_video_audio_", StringComparison.Ordinal)))
+                    RemoveLink(byId, links, ToInt(linkId));
+            }
+
+            var videoSlot = GetOrCreateSlotIndex(cloneRef, "ref_videos", "ref_video", 0, "IMAGE");
+            var videoLinkId = ids.TakeLinkId();
+            links.Add(BuildLink(videoLinkId, previousDecode, 0, cloneRefId, videoSlot, "IMAGE"));
+            SetSlotLink(cloneRef, "ref_videos.ref_video_0", videoLinkId);
+            AddOutputLink(byId[previousDecode], 0, videoLinkId);
+
+            if (segment.PreviousVideo.AudioUse != VideoAudioUse.None && previousAudioDecode != 0)
+            {
+                var audioSlot = GetOrCreateSlotIndex(cloneRef, "ref_video_audios", "ref_video_audio", 0, "AUDIO");
+                var audioLinkId = ids.TakeLinkId();
+                links.Add(BuildLink(audioLinkId, previousAudioDecode, 0, cloneRefId, audioSlot, "AUDIO"));
+                SetSlotLink(cloneRef, "ref_video_audios.ref_video_audio_0", audioLinkId);
+                AddOutputLink(byId[previousAudioDecode], 0, audioLinkId);
+            }
+
+            // -- this segment's own prompt, length, and output name
+            if (promptOriginal != 0)
+                clones[idMap[promptOriginal]]["widgets_values"]!.AsArray()[0] = PromptComposer.Compose(view);
+            if (durationOriginal != 0)
+                clones[idMap[durationOriginal]]["widgets_values"]!.AsArray()[0] = segment.DurationSeconds;
+            if (saveOriginal != 0)
+                RetitleAndPrefix(clones[idMap[saveOriginal]], k + 1, "Save Video");
+
+            previousDecode = idMap[decodeOriginal];
+            previousAudioDecode = audioDecodeOriginal == 0 ? 0 : idMap[audioDecodeOriginal];
+        }
+    }
+
+    /// <summary>Names a SaveVideo after its segment, e.g. ".../ComfyUI_part2", so each clip of the
+    /// chain lands in its own numbered file.</summary>
+    private static void RetitleAndPrefix(JsonObject saveNode, int segmentNumber, string title)
+    {
+        saveNode["title"] = $"{title}{SegmentTitleMarker}{segmentNumber}";
+        saveNode["widgets_values"]!.AsArray()[0] = $"{OutputFilenamePrefix}_part{segmentNumber}";
+    }
+
+    /// <summary>Every node feeding SaveVideo, found by walking links backwards and stopping at any
+    /// <see cref="SharedNodeTypes"/> node -- i.e. the per-clip stack -- in the template's own order.</summary>
+    private static List<int> CollectSegmentStack(JsonArray nodes, JsonArray links, int saveNodeId)
+    {
+        var typeById = nodes.ToDictionary(n => ToInt(n!["id"]), n => n!["type"]!.GetValue<string>());
+        var linkList = links.Select(l => l!.AsArray()).ToList();
+
+        var stack = new HashSet<int> { saveNodeId };
+        var queue = new Queue<int>([saveNodeId]);
+        while (queue.Count > 0)
+        {
+            var id = queue.Dequeue();
+            foreach (var link in linkList)
+            {
+                if (ToInt(link[3]) != id) continue;
+                var origin = ToInt(link[1]);
+                if (!typeById.TryGetValue(origin, out var type) || SharedNodeTypes.Contains(type)) continue;
+                if (stack.Add(origin)) queue.Enqueue(origin);
+            }
+        }
+
+        return nodes.Select(n => ToInt(n!["id"])).Where(stack.Contains).ToList();
+    }
+
+    private static void AddOutputLink(JsonObject node, int outputSlot, int linkId)
+    {
+        var output = node["outputs"]!.AsArray()[outputSlot]!.AsObject();
+        if (output["links"] is not JsonArray list)
+            output["links"] = list = new JsonArray();
+        list.Add(linkId);
+    }
+
+    /// <summary>Deletes one link and its bookkeeping on both ends (the origin's output list and the
+    /// target's input), leaving the nodes themselves in place.</summary>
+    private static void RemoveLink(Dictionary<int, JsonObject> byId, JsonArray links, int linkId)
+    {
+        var link = links.Select(l => l!.AsArray()).FirstOrDefault(l => ToInt(l[0]) == linkId);
+        if (link is null) return;
+
+        var origin = ToInt(link[1]);
+        var slot = ToInt(link[2]);
+        if (byId.TryGetValue(origin, out var originNode)
+            && originNode["outputs"]!.AsArray()[slot]!["links"] is JsonArray originLinks)
+        {
+            var entry = originLinks.FirstOrDefault(l => ToInt(l) == linkId);
+            if (entry is not null) originLinks.Remove(entry);
+        }
+
+        if (byId.TryGetValue(ToInt(link[3]), out var targetNode))
+            targetNode["inputs"]!.AsArray()[ToInt(link[4])]!["link"] = null;
+
+        links.Remove(link);
+    }
 
     /// <summary>Overwrites the diffusion model / text encoder / VAE loader filenames per
     /// <see cref="DiscoverModelSlots"/>'s Key scheme. Unknown keys and blank values are ignored,

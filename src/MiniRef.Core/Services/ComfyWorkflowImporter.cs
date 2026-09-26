@@ -207,8 +207,71 @@ public static partial class ComfyWorkflowImporter
         if (durationNode?["widgets_values"]?.AsArray() is { Count: > 0 } durationWidgets && durationWidgets[0] is { } dur)
             project.DurationSeconds = dur.GetValue<double>();
 
+        ImportContinuationSegments(project, nodes);
+
         return project;
     }
+
+    // ---- continuation segments: the "... — Segment N" prompt/duration nodes a chained export clones ----
+
+    private static readonly Regex SegmentTitleRegex =
+        new(Regex.Escape(ComfyWorkflowExporter.SegmentTitleMarker) + @"(?<n>\d+)$");
+
+    /// <summary>Rebuilds segments 2..N of a chained workflow. Each one's prompt is its own PrimitiveStringMultiline
+    /// node titled "... — Segment N", so it goes through the same section parsing as segment 1's --
+    /// but only the parts that belong to a segment are kept: shots, summary, soundscape, music, duration,
+    /// and how the previous clip (its &lt;Video 1&gt;) is described and its soundtrack used. The cast
+    /// comes from segment 1 (it's shared), and the task types the continuation implies (video continuation,
+    /// audio reuse/reference) are dropped since <see cref="SceneProject.ForSegment"/> re-adds them.</summary>
+    private static void ImportContinuationSegments(SceneProject project, JsonArray nodes)
+    {
+        var promptNodes = nodes.Select(n => n!.AsObject())
+            .Where(n => n["type"]?.GetValue<string>() == "PrimitiveStringMultiline")
+            .Select(n => (Node: n, Match: SegmentTitleRegex.Match(n["title"]?.GetValue<string>() ?? "")))
+            .Where(x => x.Match.Success && int.Parse(x.Match.Groups["n"].Value) >= 2)
+            .Select(x => (Number: int.Parse(x.Match.Groups["n"].Value), x.Node))
+            .OrderBy(x => x.Number);
+
+        const TaskType implied = TaskType.VideoContinuation | TaskType.AudioReuse | TaskType.AudioReference;
+
+        foreach (var (number, promptNode) in promptNodes)
+        {
+            var text = (GetArrayWidget(promptNode, 0) ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
+            var sections = ParseSections(text);
+            var defs = ParseSubjectDefinitions(sections.GetValueOrDefault("subject_definitions", ""));
+
+            var segment = new SceneSegment();
+            var (taskTypes, summary) = ParseSummary(sections.GetValueOrDefault("summary", ""));
+            segment.TaskTypes = taskTypes & ~implied;
+            segment.Summary = summary;
+            segment.OverallSoundscape = sections.GetValueOrDefault("overall_soundscape", "");
+            segment.NonDiegeticMusic = sections.GetValueOrDefault("non_diegetic_music", "");
+
+            var (_, shots) = ParseDetailedDescription(sections.GetValueOrDefault("detailed_description", ""), project.Subjects);
+            foreach (var shot in shots)
+                segment.Shots.Add(shot);
+
+            if (defs.VideoDescriptions.TryGetValue(1, out var description))
+                segment.PreviousVideo.Description = description;
+            segment.PreviousVideo.AudioUse = defs.VideoAudioUses.GetValueOrDefault(1, VideoAudioUse.None);
+
+            // Reuse the retention parser on a throwaway project holding only this segment's <Video 1>,
+            // so it can't touch the shared subjects' own retention.
+            ApplyRetention(new SceneProject { Subjects = [], SourceVideos = segment.VideoList },
+                sections.GetValueOrDefault("retention_analysis", ""), new Dictionary<int, AudioRef>());
+
+            var durationTitle = ComfyWorkflowExporterDurationTitle + ComfyWorkflowExporter.SegmentTitleMarker + number;
+            var durationNode = nodes.Select(n => n!.AsObject())
+                .FirstOrDefault(n => n["type"]?.GetValue<string>() == "PrimitiveFloat"
+                    && n["title"]?.GetValue<string>() == durationTitle);
+            if (durationNode?["widgets_values"]?.AsArray() is { Count: > 0 } widgets && widgets[0] is { } seconds)
+                segment.DurationSeconds = seconds.GetValue<double>();
+
+            project.Continuations.Add(segment);
+        }
+    }
+
+    private const string ComfyWorkflowExporterDurationTitle = "Float (Duration)";
 
     private static void FillNameIfBlank(Subject subject, string? name)
     {

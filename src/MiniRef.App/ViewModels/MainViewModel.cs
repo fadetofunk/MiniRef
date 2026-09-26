@@ -217,7 +217,9 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void AddSegment()
     {
-        Project.Continuations.Add(new SceneSegment());
+        // Start at the previous clip's length -- a chain is usually equal-length clips.
+        var previousSeconds = Project.Continuations.Count == 0 ? Project.DurationSeconds : Project.Continuations[^1].DurationSeconds;
+        Project.Continuations.Add(new SceneSegment { DurationSeconds = previousSeconds });
         RebuildSegmentLabels();
         CurrentSegmentIndex = Project.Continuations.Count;   // jump to the new one
     }
@@ -629,6 +631,17 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // Each segment is its own generation carrying the whole shared cast, so check every one
+        // against ref2va's input caps -- anything over is silently left out of the export.
+        var limitProblems = Enumerable.Range(0, Project.SegmentCount)
+            .SelectMany(i => ReferenceLimits.Check(Project.ForSegment(i))
+                .Select(problem => Project.SegmentCount > 1 ? $"Segment {i + 1}: {problem}" : problem))
+            .ToList();
+        if (limitProblems.Count > 0 && MessageBox.Show(
+                string.Join("\n", limitProblems) + "\n\nExport anyway?",
+                "Export ComfyUI Workflow", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
+
         var root = Settings.ComfyUiRootFolder;
         var hasRoot = !string.IsNullOrWhiteSpace(root) && Directory.Exists(root);
 
@@ -662,8 +675,14 @@ public partial class MainViewModel : ObservableObject
 
         File.WriteAllText(outputPath, workflowJson);
 
+        var chainNote = Project.SegmentCount > 1
+            ? $"This is a {Project.SegmentCount}-segment chain: one workflow that renders {Project.SegmentCount} clips back to back " +
+              $"(saved as ..._part1 to ..._part{Project.SegmentCount}). Each clip after the first is fed the previous clip's frames and " +
+              "audio inside the graph, and the pictures/voices are loaded once and shared -- load it in ComfyUI and queue it once.\n\n"
+            : "";
+
         MessageBox.Show(
-            $"Workflow exported to:\n{outputPath}\n\n" +
+            $"Workflow exported to:\n{outputPath}\n\n" + chainNote +
             "LoadImage/LoadAudio/VHS_LoadVideoPath nodes are titled with their <Picture N>/<Audio N>/<Video N> " +
             "tag and character name. Pictures/audio with a file chosen were copied into ComfyUI's input folder " +
             "automatically; anything without a file picked still shows a placeholder to fill in by hand.\n\n" +
