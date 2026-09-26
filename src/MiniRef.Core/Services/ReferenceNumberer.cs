@@ -53,6 +53,28 @@ public static partial class ReferenceNumberer
         return videoNumbers;
     }
 
+    /// <summary>Assigns an &lt;Audio N&gt; number to each source video whose own soundtrack is in use
+    /// (<see cref="VideoRef.AudioUse"/> not None), continuing on from the last subject audio, in
+    /// video-list order. The numbers are keyed by the VideoRef's Id and merged into
+    /// <see cref="ReferenceNumbering.AudioNumbers"/> by <see cref="Compute"/>, so the existing
+    /// tag-renumbering already follows them when a subject audio is added or removed.
+    ///
+    /// ASSUMPTION: video soundtracks number after the standalone audios. The guide says tags follow
+    /// the order inputs were connected, and the reference node's slot order is ref_images,
+    /// ref_videos, ref_video_audios, ref_audios -- which could put these first instead. Unconfirmed;
+    /// this is the one place to change if a real run shows the other order.</summary>
+    public static IReadOnlyDictionary<Guid, int> NumberVideoAudios(IReadOnlyList<Subject> subjects, IReadOnlyList<VideoRef> videos)
+    {
+        var counter = subjects.Sum(s => s.Audios.Count);
+        var numbers = new Dictionary<Guid, int>();
+        foreach (var video in videos)
+        {
+            if (video.AudioUse != VideoAudioUse.None)
+                numbers[video.Id] = ++counter;
+        }
+        return numbers;
+    }
+
     /// <summary>Assigns speaker "(Sx)" IDs by the order subjects first actually speak, across
     /// shots in list order and each shot's Dialogue in insertion order. Per the guide: "Assign
     /// (Sx) once according to the order of actual vocal events in the target video" -- the ID
@@ -78,8 +100,12 @@ public static partial class ReferenceNumberer
 
     public static ReferenceNumbering Compute(SceneProject project)
     {
-        var (subjectNumbers, pictureNumbers, audioNumbers) = NumberSubjects(project.Subjects);
+        var (subjectNumbers, pictureNumbers, subjectAudioNumbers) = NumberSubjects(project.Subjects);
         var videoNumbers = NumberVideos(project.SourceVideos);
+
+        var audioNumbers = new Dictionary<Guid, int>(subjectAudioNumbers);
+        foreach (var (videoId, number) in NumberVideoAudios(project.Subjects, project.SourceVideos))
+            audioNumbers[videoId] = number;
         var speakerNumbers = NumberSpeakers(project.Shots);
         var shotNumbers = new Dictionary<Guid, int>();
 

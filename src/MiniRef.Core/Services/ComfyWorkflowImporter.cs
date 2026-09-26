@@ -167,6 +167,12 @@ public static partial class ComfyWorkflowImporter
                 project.SourceVideos.Add(new VideoRef { Description = description });
         }
 
+        foreach (var (videoNumber, audioUse) in defs.VideoAudioUses)
+        {
+            if (videoNumber >= 1 && videoNumber <= project.SourceVideos.Count)
+                project.SourceVideos[videoNumber - 1].AudioUse = audioUse;
+        }
+
         ApplyRetention(project, sections.GetValueOrDefault("retention_analysis", ""), audiosByNumber);
 
         var (taskTypes, summary) = ParseSummary(sections.GetValueOrDefault("summary", ""));
@@ -327,6 +333,10 @@ public static partial class ComfyWorkflowImporter
         public Dictionary<int, int> PictureOwners { get; } = [];
         public Dictionary<int, int> AudioOwners { get; } = [];
         public Dictionary<int, string> VideoDescriptions { get; } = [];
+
+        /// <summary>Video number -> how its own soundtrack is used, from the "&lt;Audio N&gt; is the
+        /// synchronized audio track of &lt;Video M&gt;" sentence.</summary>
+        public Dictionary<int, VideoAudioUse> VideoAudioUses { get; } = [];
     }
 
     private static SubjectDefinitions ParseSubjectDefinitions(string content)
@@ -365,7 +375,19 @@ public static partial class ComfyWorkflowImporter
                 {
                     var m = AudioVoiceForRegex().Match(rest);
                     if (m.Success)
+                    {
                         result.AudioOwners[n] = int.Parse(m.Groups["subj"].Value);
+                        break;
+                    }
+
+                    var videoAudio = VideoAudioForRegex().Match(rest);
+                    if (videoAudio.Success)
+                    {
+                        result.VideoAudioUses[int.Parse(videoAudio.Groups["vid"].Value)] =
+                            videoAudio.Groups["rest"].Value.Contains("reused", StringComparison.OrdinalIgnoreCase)
+                                ? VideoAudioUse.Reuse
+                                : VideoAudioUse.Reference;
+                    }
                     break;
                 }
                 case "Video":
@@ -409,6 +431,9 @@ public static partial class ComfyWorkflowImporter
 
     [GeneratedRegex(@"^is the voice-timbre reference for <Subject (?<subj>\d+)> \(S\d+\)(?:,\s*.+)?\.$")]
     private static partial Regex AudioVoiceForRegex();
+
+    [GeneratedRegex(@"^is the synchronized audio track of <Video (?<vid>\d+)>(?<rest>.*)\.$")]
+    private static partial Regex VideoAudioForRegex();
 
     [GeneratedRegex(@"^is (?<desc>.+)\.$")]
     private static partial Regex VideoIsRegex();

@@ -27,6 +27,17 @@ public enum AudioRetentionType
     WeakReference
 }
 
+/// <summary>How a source video's own synchronized soundtrack -- the reference node's paired
+/// ref_video_audios input -- is used in the target video. Reuse: the original audio stays audible
+/// (the guide's "audio reuse"). Reference: the new audio only carries on the original track's
+/// audible characteristics ("audio reference"), which is the usual fit for continuing a clip.</summary>
+public enum VideoAudioUse
+{
+    None,
+    Reuse,
+    Reference
+}
+
 [Flags]
 public enum TaskType
 {

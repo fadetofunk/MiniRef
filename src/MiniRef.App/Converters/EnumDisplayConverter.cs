@@ -12,6 +12,7 @@ public class EnumDisplayConverter : IValueConverter
     {
         null => "(none)",
         SubjectClassification sc => sc.ToDisplay(),
+        VideoAudioUse vau => vau.ToDisplay(),
         VisualRetentionType v => v.ToPromptToken(),
         AudioRetentionType a => a.ToPromptToken(),
         TaskType t => t.ToPromptToken(),

@@ -19,4 +19,9 @@ public partial class VideoRef : ObservableObject
     /// only"), separate from any subject that might appear within the video.</summary>
     [ObservableProperty] private VisualRetentionType? retention;
     [ObservableProperty] private string retentionNote = "";
+
+    /// <summary>Whether this video's own soundtrack is fed to the reference node's paired
+    /// ref_video_audios input, and how the prompt describes it. When not None the video also
+    /// takes an &lt;Audio N&gt; number (after every subject audio) for that soundtrack.</summary>
+    [ObservableProperty] private VideoAudioUse audioUse = VideoAudioUse.None;
 }

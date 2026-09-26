@@ -117,6 +117,7 @@ public static class ComfyWorkflowExporter
         ClearExistingRefSlots(nodes, links, refNode, "ref_images.ref_image_");
         ClearExistingRefSlots(nodes, links, refNode, "ref_audios.ref_audio_");
         ClearExistingRefSlots(nodes, links, refNode, "ref_videos.ref_video_");
+        ClearExistingRefSlots(nodes, links, refNode, "ref_video_audios.ref_video_audio_");
 
         var (_, pictureNumbers, audioNumbers) = ReferenceNumberer.NumberSubjects(project.Subjects);
 
@@ -181,11 +182,21 @@ public static class ComfyWorkflowExporter
 
             var nodeId = nextNodeId++;
             var linkId = nextLinkId++;
-            nodes.Add(BuildLoadVideoNode(nodeId, title, placeholderPath, baseX + i * 320, videoBaseY, linkId));
+            int? audioLinkId = video.AudioUse == VideoAudioUse.None ? null : nextLinkId++;
+            nodes.Add(BuildLoadVideoNode(nodeId, title, placeholderPath, baseX + i * 320, videoBaseY, linkId, audioLinkId));
 
             var slotIndex = GetOrCreateSlotIndex(refNode, "ref_videos", "ref_video", i, "IMAGE");
             links.Add(BuildLink(linkId, nodeId, 0, refNodeId, slotIndex, "IMAGE"));
             SetSlotLink(refNode, $"ref_videos.ref_video_{i}", linkId);
+
+            // The video's own soundtrack rides on the loader's "audio" output into the reference
+            // node's paired ref_video_audios slot, at the same index as its ref_videos slot.
+            if (audioLinkId is { } audioLink)
+            {
+                var audioSlotIndex = GetOrCreateSlotIndex(refNode, "ref_video_audios", "ref_video_audio", i, "AUDIO");
+                links.Add(BuildLink(audioLink, nodeId, 2, refNodeId, audioSlotIndex, "AUDIO"));
+                SetSlotLink(refNode, $"ref_video_audios.ref_video_audio_{i}", audioLink);
+            }
         }
 
         if (promptNode is not null)
@@ -379,7 +390,7 @@ public static class ComfyWorkflowExporter
     /// its widgets_values serializes as a keyed object rather than a positional array, confirmed
     /// against a real exported workflow. Only the "video" path is meaningful here; the rest are
     /// the node's own defaults.</summary>
-    private static JsonObject BuildLoadVideoNode(int id, string title, string placeholderPath, int x, int y, int outputLinkId) => new()
+    private static JsonObject BuildLoadVideoNode(int id, string title, string placeholderPath, int x, int y, int outputLinkId, int? audioLinkId = null) => new()
     {
         ["id"] = id,
         ["type"] = "VHS_LoadVideoPath",
@@ -392,7 +403,7 @@ public static class ComfyWorkflowExporter
         ["outputs"] = new JsonArray(
             new JsonObject { ["name"] = "IMAGE", ["type"] = "IMAGE", ["links"] = new JsonArray(outputLinkId) },
             new JsonObject { ["name"] = "frame_count", ["type"] = "INT", ["links"] = null },
-            new JsonObject { ["name"] = "audio", ["type"] = "AUDIO", ["links"] = null },
+            new JsonObject { ["name"] = "audio", ["type"] = "AUDIO", ["links"] = audioLinkId is { } id2 ? new JsonArray(id2) : null },
             new JsonObject { ["name"] = "video_info", ["type"] = "VHS_VIDEOINFO", ["links"] = null }
         ),
         ["title"] = title,

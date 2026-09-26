@@ -346,6 +346,16 @@
                                                        ToolTip="{Binding FilePath}"
                                                        Text="{Binding FilePath, Converter={StaticResource PathToFileName}}"/>
                                         </DockPanel>
+                                        <TextBlock Text="Its audio" FontSize="10" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,6,0,2"
+                                                   ToolTip="Feeds this video's own soundtrack to the reference node's paired ref_video_audios input and adds an &lt;Audio N&gt; for it. Reuse keeps the original audio audible; Continue (reference) lets new audio pick up its audible character -- the usual choice for continuing a clip."/>
+                                        <ComboBox ItemsSource="{x:Static local:EnumSources.VideoAudioUseChoices}"
+                                                  SelectedItem="{Binding AudioUse}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
                                         <TextBlock Text="Retention" FontSize="10" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,6,0,2"/>
                                         <ComboBox ItemsSource="{x:Static local:EnumSources.VisualRetentionChoices}"
                                                   SelectedItem="{Binding Retention}">

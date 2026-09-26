@@ -31,11 +31,15 @@ public static class TagChipBuilder
         if (sourceVideos is not null)
         {
             var videoNumbers = ReferenceNumberer.NumberVideos(sourceVideos);
+            var videoAudioNumbers = ReferenceNumberer.NumberVideoAudios(subjects, sourceVideos);
             foreach (var v in sourceVideos)
             {
                 var n = videoNumbers[v.Id];
                 var label = string.IsNullOrWhiteSpace(v.Description) ? $"Video {n}" : v.Description;
                 chips.Add(new TagChip($"+ {label}", ReferenceNumberer.VideoTag(n)));
+
+                if (videoAudioNumbers.TryGetValue(v.Id, out var audioNumber))
+                    chips.Add(new TagChip($"+ Audio {audioNumber} (Video {n})", ReferenceNumberer.AudioTag(audioNumber)));
             }
         }
 
