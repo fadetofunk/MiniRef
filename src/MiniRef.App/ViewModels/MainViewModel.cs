@@ -135,6 +135,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string segmentWarnings = "";
 
     public bool HasSegmentWarnings => SegmentWarnings.Length > 0;
+    public bool HasMultipleSegments => Project.SegmentCount > 1;
     public bool IsContinuationSegment => SafeSegmentIndex > 0;
     public bool IsNotContinuationSegment => SafeSegmentIndex == 0;
 
@@ -176,6 +177,7 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(CurrentSummary));
         OnPropertyChanged(nameof(IsContinuationSegment));
         OnPropertyChanged(nameof(IsNotContinuationSegment));
+        OnPropertyChanged(nameof(HasMultipleSegments));
         OnPropertyChanged(nameof(TaskKeyframeCompletion));
         OnPropertyChanged(nameof(TaskReferenceGeneration));
         OnPropertyChanged(nameof(TaskVideoEditing));
@@ -679,8 +681,10 @@ public partial class MainViewModel : ObservableObject
 
         var chainNote = Project.SegmentCount > 1
             ? $"This is a {Project.SegmentCount}-segment chain: one workflow that renders {Project.SegmentCount} clips back to back " +
-              $"(saved as ..._part1 to ..._part{Project.SegmentCount}). Each clip after the first is fed the previous clip's frames and " +
-              "audio inside the graph, and the pictures/voices are loaded once and shared -- load it in ComfyUI and queue it once.\n\n"
+              $"(saved as <date>_<time>_<project>_a to _{(char)('a' + Math.Min(Project.SegmentCount - 1, 25))}" +
+              (Project.SaveJoinedVideo ? ", plus _joined with them all in one video" : "") +
+              "). Each clip after the first continues from the previous clip inside the graph, and the pictures/voices are " +
+              "loaded once and shared -- load it in ComfyUI and queue it once.\n\n"
             : "";
 
         MessageBox.Show(

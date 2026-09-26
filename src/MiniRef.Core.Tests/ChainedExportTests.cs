@@ -41,6 +41,7 @@ public class ChainedExportTests
             segment.PreviousVideo.AudioUse = audioUse;
             segment.PreviousVideo.Handoff = handoff;
         }
+        project.SaveJoinedVideo = false;   // these tests count per-clip nodes; the joined output has its own tests
         return project;
     }
 
@@ -204,9 +205,9 @@ public class ChainedExportTests
 
         var prefixes = g.OfType("SaveVideo").Select(n => n["widgets_values"]!.AsArray()[0]!.GetValue<string>()).ToList();
         Assert.Equal(3, prefixes.Distinct().Count());
-        Assert.EndsWith("_part1", prefixes[0]);
-        Assert.EndsWith("_part2", prefixes[1]);
-        Assert.EndsWith("_part3", prefixes[2]);
+        Assert.EndsWith("_a", prefixes[0]);
+        Assert.EndsWith("_b", prefixes[1]);
+        Assert.EndsWith("_c", prefixes[2]);
     }
 
     [Fact]
@@ -609,6 +610,133 @@ public class ChainedExportTests
         // A reference-video handoff pins nothing, so 13 s is fine there.
         over.Continuations[0].PreviousVideo.Handoff = PreviousClipHandoff.ReferenceVideo;
         Assert.Empty(ReferenceLimits.CheckLengths(over));
+    }
+
+    // ---------------- joined output + output naming ----------------
+
+    private static SceneProject JoinedProject(PreviousClipHandoff handoff = PreviousClipHandoff.PinEnding)
+    {
+        var project = ThreeSegmentProject(VideoAudioUse.Reference, handoff);
+        project.Name = "Acid Vat";
+        project.SaveJoinedVideo = true;
+        return project;
+    }
+
+    [Fact]
+    public void Joined_FramesAndAudioOfEveryClipAreConcatenatedInPlaybackOrder()
+    {
+        var g = Export(JoinedProject());
+        var creates = g.OfType("CreateVideo");
+        Assert.Equal(4, creates.Count);                 // one per clip + the joined one
+        var joinedCreate = creates[3];
+
+        // frames: one BatchImagesNode with a slot per clip, fed by exactly what each clip's own CreateVideo receives
+        var batch = Assert.Single(g.OfType("BatchImagesNode"));
+        for (var i = 0; i < 3; i++)
+        {
+            var expected = g.Feeder(creates[i], "images")!.Value;
+            var actual = g.Feeder(batch, $"images.image{i}")!.Value;
+            Assert.Equal(Graph.Id(expected.Origin), Graph.Id(actual.Origin));
+            Assert.Equal(expected.Slot, actual.Slot);
+        }
+        Assert.Null(g.Feeder(batch, "images.image3"));
+        Assert.Equal(Graph.Id(batch), Graph.Id(g.Feeder(joinedCreate, "images")!.Value.Origin));
+
+        // pinned clips contribute their trimmed frames (the pinned span is dropped), the first its plain decode
+        Assert.Equal("VAEDecode", g.Feeder(batch, "images.image0")!.Value.Origin["type"]!.GetValue<string>());
+        Assert.Equal("ImageFromBatch", g.Feeder(batch, "images.image1")!.Value.Origin["type"]!.GetValue<string>());
+        Assert.Equal("ImageFromBatch", g.Feeder(batch, "images.image2")!.Value.Origin["type"]!.GetValue<string>());
+
+        // audio: audio1 + audio2, then that + audio3 -- a chain of two AudioConcat
+        var concats = g.OfType("AudioConcat");
+        Assert.Equal(2, concats.Count);
+        Assert.Equal("after", concats[0]["widgets_values"]!.AsArray()[0]!.GetValue<string>());
+        Assert.Equal(Graph.Id(g.Feeder(creates[0], "audio")!.Value.Origin), Graph.Id(g.Feeder(concats[0], "audio1")!.Value.Origin));
+        Assert.Equal(Graph.Id(g.Feeder(creates[1], "audio")!.Value.Origin), Graph.Id(g.Feeder(concats[0], "audio2")!.Value.Origin));
+        Assert.Equal(Graph.Id(concats[0]), Graph.Id(g.Feeder(concats[1], "audio1")!.Value.Origin));
+        Assert.Equal(Graph.Id(g.Feeder(creates[2], "audio")!.Value.Origin), Graph.Id(g.Feeder(concats[1], "audio2")!.Value.Origin));
+        Assert.Equal(Graph.Id(concats[1]), Graph.Id(g.Feeder(joinedCreate, "audio")!.Value.Origin));
+
+        // and the result is saved by its own SaveVideo
+        var saves = g.OfType("SaveVideo");
+        Assert.Equal(4, saves.Count);
+        Assert.Equal(Graph.Id(joinedCreate), Graph.Id(g.Feeder(saves[3], "video")!.Value.Origin));
+    }
+
+    [Fact]
+    public void Joined_CanBeSwitchedOff_AndIsNeverAddedForASingleClip()
+    {
+        var off = JoinedProject();
+        off.SaveJoinedVideo = false;
+        var g = Export(off);
+        Assert.Empty(g.OfType("BatchImagesNode"));
+        Assert.Empty(g.OfType("AudioConcat"));
+        Assert.Equal(3, g.OfType("SaveVideo").Count);
+
+        var single = JoinedProject();
+        single.Continuations.Clear();
+        Assert.Empty(Export(single).OfType("BatchImagesNode"));
+    }
+
+    [Fact]
+    public void Joined_StillJoinsTheSound_WhenThePreviousClipsAudioIsNotPinned()
+    {
+        // Not pinning the previous soundtrack doesn't change what each clip saves, so the joined video keeps its audio.
+        var project = ThreeSegmentProject(VideoAudioUse.None, PreviousClipHandoff.PinEnding);
+        project.SaveJoinedVideo = true;
+
+        var g = Export(project);
+
+        Assert.Single(g.OfType("BatchImagesNode"));
+        Assert.Equal(2, g.OfType("AudioConcat").Count);
+    }
+
+    [Fact]
+    public void OutputNames_SortByRunThenByClip_WithTheJoinedFileLast()
+    {
+        var g = Export(JoinedProject());
+        var prefixes = g.OfType("SaveVideo").Select(n => n["widgets_values"]!.AsArray()[0]!.GetValue<string>()).ToList();
+
+        const string stamp = "%date:yyyy-MM-dd%/%date:yyyy-MM-dd_hh-mm-ss%_Acid_Vat_";
+        Assert.Equal([stamp + "a", stamp + "b", stamp + "c", stamp + "joined"], prefixes);
+
+        // alphabetical order of the suffixes is playback order, with the joined file after the clips
+        Assert.Equal(prefixes, prefixes.OrderBy(p => p, StringComparer.Ordinal).ToList());
+        // no colons anywhere in the filename part (illegal on Windows)
+        Assert.DoesNotContain(':', prefixes[0].Split('/')[1].Replace("%date:yyyy-MM-dd_hh-mm-ss%", ""));
+    }
+
+    [Fact]
+    public void Joined_FlagRoundTripsThroughImport()
+    {
+        var on = JoinedProject();
+        Assert.True(ComfyWorkflowImporter.Import(ComfyWorkflowExporter.Export(LoadTemplate(), on)).SaveJoinedVideo);
+
+        var off = JoinedProject();
+        off.SaveJoinedVideo = false;
+        var imported = ComfyWorkflowImporter.Import(ComfyWorkflowExporter.Export(LoadTemplate(), off));
+        Assert.False(imported.SaveJoinedVideo);
+        Assert.Equal(3, imported.SegmentCount);           // the joined nodes don't disturb segment detection
+    }
+
+    [Fact]
+    public void Joined_KeepsTheGraphConsistent()
+    {
+        var g = Export(JoinedProject());
+
+        foreach (var link in g.Links)
+        {
+            var id = link[0]!.GetValue<double>();
+            var origin = g.Node((int)link[1]!.GetValue<double>());
+            var target = g.Node((int)link[3]!.GetValue<double>());
+            var recorded = origin["outputs"]!.AsArray()[(int)link[2]!.GetValue<double>()]!["links"]!.AsArray();
+            Assert.Contains(recorded, l => l!.GetValue<double>() == id);
+            Assert.Equal(id, target["inputs"]!.AsArray()[(int)link[4]!.GetValue<double>()]!["link"]!.GetValue<double>());
+        }
+
+        var nodeIds = g.Nodes.Select(Graph.Id).ToList();
+        Assert.Equal(nodeIds.Count, nodeIds.Distinct().Count());
+        Assert.True(g.Root["last_node_id"]!.GetValue<double>() >= nodeIds.Max());
     }
 
     [Fact]

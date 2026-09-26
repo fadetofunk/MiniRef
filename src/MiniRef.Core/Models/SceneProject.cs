@@ -40,6 +40,10 @@ public partial class SceneProject : ObservableObject
     /// visual style, aspect ratio, and megapixels are shared by every segment.</summary>
     [ObservableProperty] private ObservableCollection<SceneSegment> continuations = [];
 
+    /// <summary>For a chain: also append nodes to the exported workflow that join every clip -- frames
+    /// and audio -- into one extra video, saved alongside the individual clips. Ignored for a single clip.</summary>
+    [ObservableProperty] private bool saveJoinedVideo = true;
+
     /// <summary>Total clips in the chain: this project's own (segment 1) plus every continuation.</summary>
     [JsonIgnore]
     public int SegmentCount => 1 + Continuations.Count;

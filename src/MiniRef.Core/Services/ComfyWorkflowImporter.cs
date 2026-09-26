@@ -300,6 +300,14 @@ public static partial class ComfyWorkflowImporter
 
             project.Continuations.Add(segment);
         }
+
+        // The joined-output pair is an extra SaveVideo titled "... - Joined"; without one, it was switched off.
+        if (project.Continuations.Count > 0)
+        {
+            project.SaveJoinedVideo = nodes.Any(n =>
+                n!["type"]?.GetValue<string>() == "SaveVideo"
+                && n["title"]?.GetValue<string>()?.EndsWith(ComfyWorkflowExporter.JoinedTitleMarker) == true);
+        }
     }
 
     private const string ComfyWorkflowExporterDurationTitle = "Float (Duration)";

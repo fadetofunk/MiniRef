@@ -32,6 +32,22 @@ public static class ComfyWorkflowExporter
     /// chain's later segments again. Segment 1's own nodes keep their original titles.</summary>
     public const string SegmentTitleMarker = " — Segment ";
 
+    /// <summary>Title of the extra SaveVideo / CreateVideo pair that saves every clip joined into one.</summary>
+    public const string JoinedTitleMarker = " — Joined";
+
+    /// <summary>Output prefix for a chain: "&lt;date&gt;/&lt;date&gt;_&lt;time&gt;_&lt;project&gt;_a", "_b", ... "_joined". The
+    /// timestamp comes first so everything one run produces sorts together in generation order (ComfyUI's
+    /// own counter otherwise lists every clip 1 before every clip 2), and the trailing letter keeps the
+    /// clips in playback order within a run. (Time uses hh-mm-ss: colons aren't legal in Windows filenames.)</summary>
+    private static string ChainOutputPrefix(SceneProject project, string suffix)
+    {
+        var slug = Slugify(project.Name);
+        if (slug.Length == 0) slug = "Scene";
+        return $"%date:yyyy-MM-dd%/%date:yyyy-MM-dd_hh-mm-ss%_{slug}_{suffix}";
+    }
+
+    private static string SegmentLetter(int segmentIndex) => ((char)('a' + Math.Min(segmentIndex, 25))).ToString();
+
     /// <summary>One overridable model-loader slot found in the template. <see cref="Key"/> is
     /// stable across template re-exports and is what AppSettings.ModelOverrides is keyed by.
     /// <see cref="ModelsFolder"/> is the ComfyUI models subfolder this file type lives in
@@ -315,7 +331,7 @@ public static class ComfyWorkflowExporter
             throw new InvalidDataException("Template's clip stack has no reference node or video decode node to chain through.");
 
         // Segment 1 keeps its nodes as they are; just label its output so the chain reads clearly.
-        RetitleAndPrefix(byId[saveOriginal], 1, "Save Video");
+        RetitleAndPrefix(byId[saveOriginal], 1, "Save Video", ChainOutputPrefix(project, SegmentLetter(0)));
 
         // Where the clones sit: to the right of the original stack, one stack-width per segment.
         var xs = stackIds.Select(id => ToDouble(byId[id]["pos"]!.AsArray()[0])).ToList();
@@ -324,6 +340,7 @@ public static class ComfyWorkflowExporter
         var previousDecode = decodeOriginal;
         var previousAudioDecode = audioDecodeOriginal;
         var plans = SegmentPlanner.Plan(project);
+        var createIds = new List<int> { createVideoOriginal };   // each segment's CreateVideo, in playback order
 
         JsonObject AddNode(JsonObject node)
         {
@@ -542,12 +559,118 @@ public static class ComfyWorkflowExporter
             if (durationOriginal != 0)
                 clones[idMap[durationOriginal]]["widgets_values"]!.AsArray()[0] = plan.SavedSeconds + plan.GuideSeconds;
             if (saveOriginal != 0)
-                RetitleAndPrefix(clones[idMap[saveOriginal]], k + 1, "Save Video");
+                RetitleAndPrefix(clones[idMap[saveOriginal]], k + 1, "Save Video", ChainOutputPrefix(project, SegmentLetter(k)));
 
+            createIds.Add(createVideoOriginal == 0 ? 0 : idMap[createVideoOriginal]);
             previousDecode = idMap[decodeOriginal];
             previousAudioDecode = audioDecodeOriginal == 0 ? 0 : idMap[audioDecodeOriginal];
         }
+
+        if (project.SaveJoinedVideo && saveOriginal != 0 && createIds.All(id => id != 0))
+        {
+            // -- One more video that joins every clip: frames through BatchImagesNode, sound through a chain
+            //    of AudioConcat, then the template's own CreateVideo/SaveVideo cloned for the result. What is
+            //    joined is exactly what each clip's own CreateVideo receives -- so a pinned-ending
+            //    continuation contributes only its new material, and the pieces butt together.
+            var frameSources = new List<(int Origin, int Slot)>();
+            var audioSources = new List<(int Origin, int Slot)>();
+            foreach (var createId in createIds)
+            {
+                if (InputOrigin(links, byId[createId], "images") is { } frames) frameSources.Add(frames);
+                if (InputOrigin(links, byId[createId], "audio") is { } audio) audioSources.Add(audio);
+            }
+
+            var originalCreate = byId[createIds[0]];
+            var originalPos = originalCreate["pos"]!.AsArray();
+            var joinX = xs.Min() + spanX * project.SegmentCount + 200;
+            var joinY = ToDouble(originalPos[1]);
+
+            var batch = AddNode(BuildBatchImagesNode(ids.TakeNodeId(), $"Join clips (frames){JoinedTitleMarker}", joinX, joinY, frameSources.Count));
+            for (var i = 0; i < frameSources.Count; i++)
+                Connect(frameSources[i].Origin, frameSources[i].Slot, batch, $"images.image{i}", "IMAGE");
+
+            (int Origin, int Slot)? joinedAudio = null;
+            if (audioSources.Count == createIds.Count)
+            {
+                joinedAudio = audioSources[0];
+                for (var i = 1; i < audioSources.Count; i++)
+                {
+                    var concat = AddNode(BuildAudioConcatNode(ids.TakeNodeId(), $"Join clips (audio {i}){JoinedTitleMarker}", joinX, joinY + 260 + 130 * i));
+                    Connect(joinedAudio.Value.Origin, joinedAudio.Value.Slot, concat, "audio1", "AUDIO");
+                    Connect(audioSources[i].Origin, audioSources[i].Slot, concat, "audio2", "AUDIO");
+                    joinedAudio = (ToInt(concat["id"]), 0);
+                }
+            }
+
+            var joinedCreate = AddNode(CloneUnlinked(originalCreate, ids.TakeNodeId(), $"Create Video{JoinedTitleMarker}", joinX + 400, joinY));
+            Connect(ToInt(batch["id"]), 0, joinedCreate, "images", "IMAGE");
+            if (joinedAudio is { } finalAudio)
+                Connect(finalAudio.Origin, finalAudio.Slot, joinedCreate, "audio", "AUDIO");
+
+            var joinedSave = AddNode(CloneUnlinked(byId[saveOriginal], ids.TakeNodeId(), $"Save Video{JoinedTitleMarker}", joinX + 800, joinY));
+            joinedSave["widgets_values"]!.AsArray()[0] = ChainOutputPrefix(project, "joined");
+            Connect(ToInt(joinedCreate["id"]), 0, joinedSave, "video", "VIDEO");
+        }
     }
+
+    /// <summary>A copy of a template node with fresh id, title and position and every link cleared, ready
+    /// to be wired up.</summary>
+    private static JsonObject CloneUnlinked(JsonObject original, int newId, string title, double x, double y)
+    {
+        var clone = (JsonObject)original.DeepClone();
+        clone["id"] = newId;
+        clone["title"] = title;
+        clone["pos"] = new JsonArray(x, y);
+        foreach (var input in clone["inputs"]?.AsArray() ?? [])
+            input!["link"] = null;
+        foreach (var output in clone["outputs"]?.AsArray() ?? [])
+            output!["links"] = null;
+        return clone;
+    }
+
+    /// <summary>Core BatchImagesNode: an open-ended list of images joined end to end. Its inputs are an
+    /// "autogrow" group named images.image0, images.image1, ... like the reference node's ref_image slots.</summary>
+    private static JsonObject BuildBatchImagesNode(int id, string title, double x, double y, int inputCount)
+    {
+        var inputs = new JsonArray();
+        for (var i = 0; i < inputCount; i++)
+            inputs.Add(new JsonObject { ["label"] = $"image{i}", ["name"] = $"images.image{i}", ["shape"] = 7, ["type"] = "IMAGE", ["link"] = null });
+
+        return new JsonObject
+        {
+            ["id"] = id,
+            ["type"] = "BatchImagesNode",
+            ["pos"] = new JsonArray(x, y),
+            ["size"] = new JsonArray(290, 40 + 26 * inputCount),
+            ["flags"] = new JsonObject(),
+            ["order"] = 0,
+            ["mode"] = 0,
+            ["inputs"] = inputs,
+            ["outputs"] = new JsonArray(new JsonObject { ["name"] = "IMAGE", ["type"] = "IMAGE", ["links"] = null }),
+            ["title"] = title,
+            ["properties"] = new JsonObject { ["Node name for S&R"] = "BatchImagesNode" },
+            ["widgets_values"] = new JsonArray()
+        };
+    }
+
+    /// <summary>Core AudioConcat: appends audio2 after audio1.</summary>
+    private static JsonObject BuildAudioConcatNode(int id, string title, double x, double y) => new()
+    {
+        ["id"] = id,
+        ["type"] = "AudioConcat",
+        ["pos"] = new JsonArray(x, y),
+        ["size"] = new JsonArray(290, 110),
+        ["flags"] = new JsonObject(),
+        ["order"] = 0,
+        ["mode"] = 0,
+        ["inputs"] = new JsonArray(
+            new JsonObject { ["name"] = "audio1", ["type"] = "AUDIO", ["link"] = null },
+            new JsonObject { ["name"] = "audio2", ["type"] = "AUDIO", ["link"] = null }),
+        ["outputs"] = new JsonArray(new JsonObject { ["name"] = "AUDIO", ["type"] = "AUDIO", ["links"] = null }),
+        ["title"] = title,
+        ["properties"] = new JsonObject { ["Node name for S&R"] = "AudioConcat" },
+        ["widgets_values"] = new JsonArray("after")
+    };
 
     /// <summary>The (origin node, output slot) currently feeding the named input of a node, or null if unlinked.</summary>
     private static (int Origin, int Slot)? InputOrigin(JsonArray links, JsonObject node, string inputName)
@@ -630,10 +753,10 @@ public static class ComfyWorkflowExporter
 
     /// <summary>Names a SaveVideo after its segment, e.g. ".../ComfyUI_part2", so each clip of the
     /// chain lands in its own numbered file.</summary>
-    private static void RetitleAndPrefix(JsonObject saveNode, int segmentNumber, string title)
+    private static void RetitleAndPrefix(JsonObject saveNode, int segmentNumber, string title, string prefix)
     {
         saveNode["title"] = $"{title}{SegmentTitleMarker}{segmentNumber}";
-        saveNode["widgets_values"]!.AsArray()[0] = $"{OutputFilenamePrefix}_part{segmentNumber}";
+        saveNode["widgets_values"]!.AsArray()[0] = prefix;
     }
 
     /// <summary>Every node feeding SaveVideo, found by walking links backwards and stopping at any

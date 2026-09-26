@@ -220,6 +220,11 @@
                     <CheckBox Content="audio reuse" IsChecked="{Binding TaskAudioReuse}" Margin="0,2" IsEnabled="{Binding IsNotContinuationSegment}"/>
                     <CheckBox Content="audio reference" IsChecked="{Binding TaskAudioReference}" Margin="0,2" IsEnabled="{Binding IsNotContinuationSegment}"/>
 
+                    <CheckBox Content="also save one joined video" Margin="0,8,0,0"
+                              IsChecked="{Binding Project.SaveJoinedVideo}"
+                              Visibility="{Binding HasMultipleSegments, Converter={StaticResource BoolToVis}}"
+                              ToolTip="Adds nodes that join every clip -- frames and audio -- into one extra video, saved next to the individual clips. Each pinned-ending clip contributes only its new material, so the pieces butt together."/>
+
                     <TextBlock Text="{Binding SegmentWarnings}" TextWrapping="Wrap" FontSize="11" Margin="0,8,0,0"
                                Foreground="{DynamicResource SystemFillColorCautionBrush}"
                                Visibility="{Binding HasSegmentWarnings, Converter={StaticResource BoolToVis}}"/>
