@@ -13,7 +13,8 @@ public class ChainedExportTests
     private static string LoadTemplate() =>
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "video_minimax_h3_r2v.template.json"));
 
-    private static SceneProject ThreeSegmentProject(VideoAudioUse audioUse = VideoAudioUse.Reference)
+    private static SceneProject ThreeSegmentProject(
+        VideoAudioUse audioUse = VideoAudioUse.Reference, PreviousClipHandoff handoff = PreviousClipHandoff.ReferenceVideo)
     {
         var hero = new Subject
         {
@@ -36,7 +37,10 @@ public class ChainedExportTests
             ]
         };
         foreach (var segment in project.Continuations)
+        {
             segment.PreviousVideo.AudioUse = audioUse;
+            segment.PreviousVideo.Handoff = handoff;
+        }
         return project;
     }
 
@@ -398,6 +402,213 @@ public class ChainedExportTests
         var imported = ComfyWorkflowImporter.Import(ComfyWorkflowExporter.Export(LoadTemplate(), project));
 
         Assert.Equal(expectedAfterImport, imported.Continuations[0].PreviousVideo.UseLastSeconds, 1);
+    }
+
+    // ---------------- pinned-ending handoff (the default) ----------------
+
+    private static SceneProject PinnedThreeSegmentProject(VideoAudioUse audioUse = VideoAudioUse.Reference) =>
+        ThreeSegmentProject(audioUse, PreviousClipHandoff.PinEnding);
+
+    private static JsonObject OnlyNode(Graph g, string type, int segmentNumber) =>
+        Assert.Single(TrimNodesFor(g, type, segmentNumber));
+
+    [Fact]
+    public void PinnedEnding_AnchorsThePreviousClipsLastFramesAndSoundAtFrameZero_ViaAddGuide()
+    {
+        var g = Export(PinnedThreeSegmentProject());
+        var refs = RefNodes(g);
+        var decodes = g.OfType("VAEDecode");
+        var audioDecodes = g.OfType("VAEDecodeAudio");
+
+        // One guide per continuation, none for segment 1.
+        Assert.Equal(2, g.OfType("MiniMaxH3AddGuide").Count);
+
+        foreach (var (segment, refNode) in new[] { (2, refs[1]), (3, refs[2]) })
+        {
+            var guide = OnlyNode(g, "MiniMaxH3AddGuide", segment);
+            Assert.Equal(0, guide["widgets_values"]!.AsArray()[0]!.GetValue<int>());   // frame_idx 0: the very start
+
+            // conditioning + latent come from THIS segment's reference node; both VAEs from the shared loaders
+            Assert.Equal(Graph.Id(refNode), Graph.Id(g.Feeder(guide, "positive")!.Value.Origin));
+            Assert.Equal(0, g.Feeder(guide, "positive")!.Value.Slot);
+            Assert.Equal(Graph.Id(refNode), Graph.Id(g.Feeder(guide, "latent")!.Value.Origin));
+            Assert.Equal(1, g.Feeder(guide, "latent")!.Value.Slot);
+            Assert.Equal("VAELoader", g.Feeder(guide, "vae")!.Value.Origin["type"]!.GetValue<string>());
+            Assert.Equal("VAELoader", g.Feeder(guide, "audio_vae")!.Value.Origin["type"]!.GetValue<string>());
+            Assert.NotEqual(Graph.Id(g.Feeder(guide, "vae")!.Value.Origin), Graph.Id(g.Feeder(guide, "audio_vae")!.Value.Origin));
+
+            // the pinned frames and sound are the LAST N of the previous clip (a negative index counts from the end)
+            var frames = g.Feeder(guide, "image")!.Value.Origin;
+            Assert.Equal("ImageFromBatch", frames["type"]!.GetValue<string>());
+            Assert.Equal([-73, 73], frames["widgets_values"]!.AsArray().Select(v => v!.GetValue<int>()).ToArray());
+            Assert.Equal(Graph.Id(decodes[segment - 2]), Graph.Id(g.Feeder(frames, "image")!.Value.Origin));
+
+            var sound = g.Feeder(guide, "audio")!.Value.Origin;
+            Assert.Equal("TrimAudioDuration", sound["type"]!.GetValue<string>());
+            Assert.Equal(-73 / 24.0, sound["widgets_values"]!.AsArray()[0]!.GetValue<double>(), 6);
+            Assert.Equal(Graph.Id(audioDecodes[segment - 2]), Graph.Id(g.Feeder(sound, "audio")!.Value.Origin));
+        }
+
+        // It is a guide, not a reference: no reference videos anywhere, and no VHS loader.
+        foreach (var refNode in refs)
+        {
+            Assert.Null(g.Feeder(refNode, "ref_videos.ref_video_0"));
+            Assert.Null(g.Feeder(refNode, "ref_video_audios.ref_video_audio_0"));
+        }
+    }
+
+    [Fact]
+    public void PinnedEnding_TheGuidedConditioningFeedsTheSamplersGuider_NotTheRawReferenceOutput()
+    {
+        var g = Export(PinnedThreeSegmentProject());
+        var guiders = g.OfType("BasicGuider");
+
+        // Segment 1 is untouched; segments 2 and 3 condition on their AddGuide.
+        Assert.Equal("MiniMaxH3ReferenceToVideo", g.Feeder(guiders[0], "conditioning")!.Value.Origin["type"]!.GetValue<string>());
+        Assert.Equal("MiniMaxH3AddGuide", g.Feeder(guiders[1], "conditioning")!.Value.Origin["type"]!.GetValue<string>());
+        Assert.Equal("MiniMaxH3AddGuide", g.Feeder(guiders[2], "conditioning")!.Value.Origin["type"]!.GetValue<string>());
+        Assert.Equal(Graph.Id(OnlyNode(g, "MiniMaxH3AddGuide", 2)), Graph.Id(g.Feeder(guiders[1], "conditioning")!.Value.Origin));
+    }
+
+    [Fact]
+    public void PinnedEnding_DropsThePinnedFramesAndSoundFromWhatIsSaved_SoTheFilesButtTogether()
+    {
+        var g = Export(PinnedThreeSegmentProject());
+        var creates = g.OfType("CreateVideo");
+        var decodes = g.OfType("VAEDecode");
+        var audioDecodes = g.OfType("VAEDecodeAudio");
+
+        // Segment 1 saves its decode directly.
+        Assert.Equal("VAEDecode", g.Feeder(creates[0], "images")!.Value.Origin["type"]!.GetValue<string>());
+
+        foreach (var segment in new[] { 2, 3 })
+        {
+            var create = creates[segment - 1];
+
+            var dropFrames = g.Feeder(create, "images")!.Value.Origin;
+            Assert.Equal("ImageFromBatch", dropFrames["type"]!.GetValue<string>());
+            Assert.Equal(73, dropFrames["widgets_values"]!.AsArray()[0]!.GetValue<int>());          // start AFTER the 73 pinned frames
+            Assert.Equal(Graph.Id(decodes[segment - 1]), Graph.Id(g.Feeder(dropFrames, "image")!.Value.Origin));
+
+            var dropSound = g.Feeder(create, "audio")!.Value.Origin;
+            Assert.Equal("TrimAudioDuration", dropSound["type"]!.GetValue<string>());
+            Assert.Equal(73 / 24.0, dropSound["widgets_values"]!.AsArray()[0]!.GetValue<double>(), 6);
+            Assert.Equal(Graph.Id(audioDecodes[segment - 1]), Graph.Id(g.Feeder(dropSound, "audio")!.Value.Origin));
+        }
+
+        // The NEXT segment pins the previous clip's real ending (its own decode), not the trimmed copy.
+        var thirdFrames = g.Feeder(OnlyNode(g, "MiniMaxH3AddGuide", 3), "image")!.Value.Origin;
+        Assert.Equal(Graph.Id(decodes[1]), Graph.Id(g.Feeder(thirdFrames, "image")!.Value.Origin));
+    }
+
+    [Fact]
+    public void PinnedEnding_GeneratesTheRequestedClipPlusThePinnedTail()
+    {
+        var g = Export(PinnedThreeSegmentProject());
+        var refs = RefNodes(g);
+
+        double Seconds(JsonObject refNode) =>
+            g.Feeder(g.Feeder(refNode, "length")!.Value.Origin, "values.a")!.Value.Origin["widgets_values"]!.AsArray()[0]!.GetValue<double>();
+
+        Assert.Equal(12.0, Seconds(refs[0]));
+        Assert.Equal(10.0 + 73 / 24.0, Seconds(refs[1]), 6);
+        Assert.Equal(8.0 + 73 / 24.0, Seconds(refs[2]), 6);
+
+        var plan = SegmentPlanner.Plan(PinnedThreeSegmentProject());
+        Assert.Equal([0, 73, 73], plan.Select(p => p.GuideFrames).ToArray());
+        Assert.Equal(294, plan[0].GeneratedFrames);
+    }
+
+    [Fact]
+    public void PinnedEnding_LeavesOutVideoOneAndTheContinuationTaskType_AndAddsNoReferenceFiles()
+    {
+        var project = PinnedThreeSegmentProject();
+
+        var second = PromptComposer.ComposeSegment(project, 1);
+        Assert.DoesNotContain("<Video 1>", second);
+        Assert.DoesNotContain("video continuation", second);
+        Assert.DoesNotContain("synchronized audio track", second);
+        Assert.Contains("Part two summary.", second);
+
+        Assert.Empty(project.ForSegment(1).SourceVideos);
+    }
+
+    [Fact]
+    public void PinnedEnding_WithoutAudio_PinsOnlyFrames_ButStillDropsThePinnedSoundFromTheOutput()
+    {
+        var g = Export(PinnedThreeSegmentProject(VideoAudioUse.None));
+        var guide = OnlyNode(g, "MiniMaxH3AddGuide", 2);
+
+        Assert.NotNull(g.Feeder(guide, "image"));
+        Assert.Null(g.Feeder(guide, "audio"));
+        Assert.DoesNotContain(TrimNodesFor(g, "TrimAudioDuration", 2), n => n["title"]!.GetValue<string>().StartsWith("Last"));
+        // the generated soundtrack still starts with the pinned span, so it is still cut from the saved clip
+        Assert.Contains(TrimNodesFor(g, "TrimAudioDuration", 2), n => n["title"]!.GetValue<string>().StartsWith("Drop"));
+    }
+
+    [Fact]
+    public void PinnedEnding_KeepsTheGraphConsistent()
+    {
+        var g = Export(PinnedThreeSegmentProject());
+
+        foreach (var link in g.Links)
+        {
+            var id = link[0]!.GetValue<double>();
+            var origin = g.Node((int)link[1]!.GetValue<double>());
+            var target = g.Node((int)link[3]!.GetValue<double>());
+            var recorded = origin["outputs"]!.AsArray()[(int)link[2]!.GetValue<double>()]!["links"]!.AsArray();
+            Assert.Contains(recorded, l => l!.GetValue<double>() == id);
+            Assert.Equal(id, target["inputs"]!.AsArray()[(int)link[4]!.GetValue<double>()]!["link"]!.GetValue<double>());
+        }
+
+        // No output slot lists a link that no longer exists (replacing the guider input must not leave a stale entry).
+        var live = g.Links.Select(l => l[0]!.GetValue<double>()).ToHashSet();
+        foreach (var node in g.Nodes)
+            foreach (var output in node["outputs"]?.AsArray() ?? [])
+                foreach (var l in output!["links"]?.AsArray() ?? [])
+                    Assert.Contains(l!.GetValue<double>(), live);
+    }
+
+    [Fact]
+    public void PinnedEnding_RoundTripsThroughAnExportAndImport()
+    {
+        var project = PinnedThreeSegmentProject();
+        project.Continuations[0].PreviousVideo.UseLastSeconds = 2;      // 2 s -> 56 frames (2.33 s) after snapping
+
+        var imported = ComfyWorkflowImporter.Import(ComfyWorkflowExporter.Export(LoadTemplate(), project));
+
+        Assert.Equal(3, imported.SegmentCount);
+        foreach (var segment in imported.Continuations)
+        {
+            Assert.Equal(PreviousClipHandoff.PinEnding, segment.PreviousVideo.Handoff);
+            Assert.Equal(VideoAudioUse.Reference, segment.PreviousVideo.AudioUse);
+        }
+        Assert.Equal(2.3, imported.Continuations[0].PreviousVideo.UseLastSeconds, 1);
+        Assert.Equal(3.0, imported.Continuations[1].PreviousVideo.UseLastSeconds, 1);
+        Assert.Equal(10.0, imported.Continuations[0].DurationSeconds, 1);     // the pinned tail is subtracted back out
+        Assert.Equal(8.0, imported.Continuations[1].DurationSeconds, 1);
+
+        for (var i = 0; i < 3; i++)
+            Assert.Equal(PromptComposer.ComposeSegment(project, i), PromptComposer.ComposeSegment(imported, i));
+    }
+
+    [Fact]
+    public void LengthWarning_FiresOnlyWhenTheGeneratedClipPassesTheTrainedRange()
+    {
+        // 12 s + a 3 s pinned tail is exactly 362 frames -- right at the edge, so no warning.
+        var edge = new SceneProject { DurationSeconds = 12, Continuations = [new SceneSegment { DurationSeconds = 12 }] };
+        Assert.Equal(ClipFrames.MaxTrainedFrames, SegmentPlanner.Plan(edge)[1].GeneratedFrames);
+        Assert.Empty(ReferenceLimits.CheckLengths(edge));
+
+        // 13 s + 3 s is past it.
+        var over = new SceneProject { DurationSeconds = 12, Continuations = [new SceneSegment { DurationSeconds = 13 }] };
+        var warning = Assert.Single(ReferenceLimits.CheckLengths(over));
+        Assert.Contains("Segment 2", warning);
+        Assert.Contains("pinned from the previous clip", warning);
+
+        // A reference-video handoff pins nothing, so 13 s is fine there.
+        over.Continuations[0].PreviousVideo.Handoff = PreviousClipHandoff.ReferenceVideo;
+        Assert.Empty(ReferenceLimits.CheckLengths(over));
     }
 
     [Fact]

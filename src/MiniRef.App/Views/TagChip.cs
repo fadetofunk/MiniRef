@@ -13,6 +13,7 @@ public static class TagChipBuilder
     public static List<TagChip> Build(IReadOnlyList<Subject> subjects, IReadOnlyList<VideoRef>? sourceVideos = null)
     {
         var chips = new List<TagChip>();
+        sourceVideos = sourceVideos?.Where(v => v.IsPromptReference).ToList();
         var (subjectNumbers, pictureNumbers, audioNumbers) = ReferenceNumberer.NumberSubjects(
             subjects, ReferenceNumberer.CountVideoAudios(sourceVideos ?? []) + 1);
 

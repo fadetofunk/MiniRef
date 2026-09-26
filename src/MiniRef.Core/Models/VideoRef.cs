@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace MiniRef.Core.Models;
@@ -37,4 +38,15 @@ public partial class VideoRef : ObservableObject
     /// segment from before this setting existed loads as, rather than silently meaning "the whole clip".
     /// Ignored for ordinary file videos.</summary>
     [ObservableProperty] private double useLastSeconds = 3.0;
+
+    /// <summary>For a <see cref="FromPreviousSegment"/> video only: pin the previous clip's ending onto the
+    /// start of this clip (default), or hand it over as a reference video. See <see cref="PreviousClipHandoff"/>.
+    /// A segment saved before this setting existed loads as PinEnding.</summary>
+    [ObservableProperty] private PreviousClipHandoff handoff = PreviousClipHandoff.PinEnding;
+
+    /// <summary>Whether this video is a &lt;Video N&gt; the prompt refers to. False only for a previous
+    /// segment's clip that is pinned onto the new clip's start instead -- it has no tag and no reference
+    /// slot, so the insert-tag chips and audio numbering must skip it. Not persisted.</summary>
+    [JsonIgnore]
+    public bool IsPromptReference => !(FromPreviousSegment && Handoff == PreviousClipHandoff.PinEnding);
 }

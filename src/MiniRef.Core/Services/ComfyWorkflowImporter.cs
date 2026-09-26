@@ -260,23 +260,43 @@ public static partial class ComfyWorkflowImporter
             ApplyRetention(new SceneProject { Subjects = [], SourceVideos = segment.VideoList },
                 sections.GetValueOrDefault("retention_analysis", ""), new Dictionary<int, AudioRef>());
 
+            bool IsSegmentNode(JsonObject n, string type) =>
+                n["type"]?.GetValue<string>() == type
+                && SegmentTitleRegex.Match(n["title"]?.GetValue<string>() ?? "") is { Success: true } m
+                && int.Parse(m.Groups["n"].Value) == number;
+
+            // A pinned-ending continuation has a MiniMaxH3AddGuide titled "... - Segment N"; a reference-video
+            // one doesn't. Either way the previous clip's tail comes from the trim node that COUNTS FROM THE
+            // END (negative batch_index) -- the "drop the pinned frames" node after the decode counts from the start.
+            var addGuide = nodes.Select(n => n!.AsObject()).FirstOrDefault(n => IsSegmentNode(n, "MiniMaxH3AddGuide"));
+            var tailNode = nodes.Select(n => n!.AsObject()).FirstOrDefault(n =>
+                IsSegmentNode(n, "ImageFromBatch")
+                && n["widgets_values"]?.AsArray() is { Count: > 1 } w && w[0]!.GetValue<double>() < 0);
+            var tailFrames = tailNode?["widgets_values"]?.AsArray() is { Count: > 1 } tailWidgets ? tailWidgets[1]!.GetValue<double>() : 0;
+
+            segment.PreviousVideo.UseLastSeconds = tailFrames > 0 ? Math.Round(tailFrames / ClipFrames.Fps, 1) : 0;
+
+            var guideFrames = 0.0;
+            if (addGuide is not null)
+            {
+                segment.PreviousVideo.Handoff = PreviousClipHandoff.PinEnding;
+                guideFrames = tailFrames;
+                // The guide's soundtrack input is only wired when the previous clip's audio was in use.
+                var audioInput = addGuide["inputs"]?.AsArray().FirstOrDefault(i => i!["name"]?.GetValue<string>() == "audio");
+                segment.PreviousVideo.AudioUse = audioInput?["link"] is not null ? VideoAudioUse.Reference : VideoAudioUse.None;
+            }
+            else
+            {
+                segment.PreviousVideo.Handoff = PreviousClipHandoff.ReferenceVideo;
+            }
+
+            // The duration node holds the requested clip PLUS any pinned ending; subtract it back out.
             var durationTitle = ComfyWorkflowExporterDurationTitle + ComfyWorkflowExporter.SegmentTitleMarker + number;
             var durationNode = nodes.Select(n => n!.AsObject())
                 .FirstOrDefault(n => n["type"]?.GetValue<string>() == "PrimitiveFloat"
                     && n["title"]?.GetValue<string>() == durationTitle);
             if (durationNode?["widgets_values"]?.AsArray() is { Count: > 0 } widgets && widgets[0] is { } seconds)
-                segment.DurationSeconds = seconds.GetValue<double>();
-
-            // The tail trim is an ImageFromBatch titled "... - Segment N"; its length is the frame count.
-            // No such node means the whole previous clip was used.
-            var trimNode = nodes.Select(n => n!.AsObject()).FirstOrDefault(n =>
-                n["type"]?.GetValue<string>() == "ImageFromBatch"
-                && SegmentTitleRegex.Match(n["title"]?.GetValue<string>() ?? "") is { Success: true } m
-                && int.Parse(m.Groups["n"].Value) == number);
-            segment.PreviousVideo.UseLastSeconds =
-                trimNode?["widgets_values"]?.AsArray() is { Count: > 1 } trimWidgets && trimWidgets[1] is { } frames
-                    ? Math.Round(frames.GetValue<double>() / ClipFrames.Fps, 1)
-                    : 0;
+                segment.DurationSeconds = Math.Round(seconds.GetValue<double>() - guideFrames / ClipFrames.Fps, 2);
 
             project.Continuations.Add(segment);
         }

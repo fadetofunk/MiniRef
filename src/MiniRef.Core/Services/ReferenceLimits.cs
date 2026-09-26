@@ -13,6 +13,23 @@ public static class ReferenceLimits
     public const int MaxAudios = 3;
     public const int MaxTotalFiles = 12;
 
+    /// <summary>Warnings about how long each segment is asked to generate. H3 was trained up to about 362
+    /// frames (~15 s); the reference node's own tooltip says "longer is untested". A pinned-ending
+    /// continuation renders its pinned tail on top of the requested length, so 12 s + 3 s lands right at the edge.</summary>
+    public static IReadOnlyList<string> CheckLengths(SceneProject project) =>
+        Enumerable.Range(0, project.SegmentCount).SelectMany(i => CheckLength(project, i)).ToList();
+
+    /// <summary>The same length check for a single segment (0-based).</summary>
+    public static IReadOnlyList<string> CheckLength(SceneProject project, int segmentIndex)
+    {
+        var plan = SegmentPlanner.Plan(project)[segmentIndex];
+        if (plan.GeneratedFrames <= ClipFrames.MaxTrainedFrames) return [];
+
+        var label = project.SegmentCount > 1 ? $"Segment {plan.Index + 1}: " : "";
+        var pinned = plan.GuideFrames > 0 ? $" ({plan.SavedSeconds:0.##} s plus {plan.GuideSeconds:0.##} s pinned from the previous clip)" : "";
+        return [$"{label}generates {plan.GeneratedFrames} frames = {plan.GeneratedSeconds:0.#} s{pinned} -- longer than the ~{ClipFrames.MaxTrainedFrames}-frame (15 s) range H3 was trained on."];
+    }
+
     /// <summary>Problems with one segment's reference inputs, as plain sentences; empty if it fits.
     /// Pass a segment view (<see cref="SceneProject.ForSegment"/>), not the whole project. A video's
     /// own soundtrack counts toward the total but not toward the standalone-audio cap.</summary>

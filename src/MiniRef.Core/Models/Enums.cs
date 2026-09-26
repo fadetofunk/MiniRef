@@ -38,6 +38,17 @@ public enum VideoAudioUse
     Reference
 }
 
+/// <summary>How a continuation segment is given the previous clip. PinEnding anchors the previous
+/// clip's last frames and soundtrack onto the first frames of the new clip's own timeline with
+/// MiniMaxH3AddGuide -- the opening is locked to the ending, so motion and sound carry across by
+/// construction (this is how Comfy's own multiframe template pins frames). ReferenceVideo instead hands
+/// it over as a &lt;Video N&gt; reference the model may imitate -- and, given a long one, copy.</summary>
+public enum PreviousClipHandoff
+{
+    PinEnding,
+    ReferenceVideo
+}
+
 [Flags]
 public enum TaskType
 {

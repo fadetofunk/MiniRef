@@ -307,6 +307,8 @@ public static class ComfyWorkflowExporter
         var audioDecodeOriginal = RoleId("VAEDecodeAudio");
         var promptOriginal = RoleId(PromptNodeType);
         var saveOriginal = RoleId(SaveVideoNodeType);
+        var guiderOriginal = RoleId("BasicGuider");
+        var createVideoOriginal = RoleId("CreateVideo");
         var durationOriginal = stackIds.FirstOrDefault(id => byId[id]["type"]!.GetValue<string>() == DurationNodeType
             && byId[id]["title"]?.GetValue<string>() == DurationNodeTitle);
         if (refOriginal == 0 || decodeOriginal == 0)
@@ -321,7 +323,37 @@ public static class ComfyWorkflowExporter
 
         var previousDecode = decodeOriginal;
         var previousAudioDecode = audioDecodeOriginal;
-        var previousSeconds = project.DurationSeconds;
+        var plans = SegmentPlanner.Plan(project);
+
+        JsonObject AddNode(JsonObject node)
+        {
+            nodes.Add(node);
+            byId[ToInt(node["id"])] = node;
+            return node;
+        }
+
+        // Wires originId's output to the named input of target, replacing whatever fed that input.
+        void Connect(int originId, int originSlot, JsonObject target, string inputName, string type)
+        {
+            var inputs = target["inputs"]!.AsArray();
+            var slot = -1;
+            for (var i = 0; i < inputs.Count; i++)
+            {
+                if (inputs[i]!["name"]?.GetValue<string>() != inputName) continue;
+                slot = i;
+                break;
+            }
+            if (slot < 0)
+                throw new InvalidDataException($"'{target["type"]!.GetValue<string>()}' has no '{inputName}' input to wire.");
+
+            if (inputs[slot]!["link"] is { } existing)
+                RemoveLink(byId, links, ToInt(existing));
+
+            var linkId = ids.TakeLinkId();
+            links.Add(BuildLink(linkId, originId, originSlot, ToInt(target["id"]), slot, type));
+            inputs[slot]!["link"] = linkId;
+            AddOutputLink(byId[originId], originSlot, linkId);
+        }
 
         // Snapshot the original stack's links once; every clone is stamped from these.
         var stackLinks = links.Select(l => l!.AsArray())
@@ -387,83 +419,178 @@ public static class ComfyWorkflowExporter
                     RemoveLink(byId, links, ToInt(linkId));
             }
 
-            // -- how much of the previous clip to hand over. The reference node keeps a reference video's
-            //    FIRST frames when it's longer than the new clip and crops it to a valid length (17k + 5)
-            //    by dropping frames off the END -- so anything short of "exactly a valid length no longer
-            //    than the new clip" would throw away the ending, which is what a continuation needs. Take
-            //    the tail ourselves instead (also far cheaper: every reference frame is extra tokens on
-            //    every sampling step).
-            var previousFrames = ClipFrames.ForSeconds(previousSeconds);
-            var wantFrames = segment.PreviousVideo.UseLastSeconds > 0
-                ? (int)Math.Round(segment.PreviousVideo.UseLastSeconds * ClipFrames.Fps)
-                : previousFrames;
-            var tailFrames = ClipFrames.LargestValidAtMost(
-                Math.Min(ClipFrames.NearestValid(wantFrames), Math.Min(previousFrames, ClipFrames.ForSeconds(segment.DurationSeconds))));
-            var tailSeconds = tailFrames / (double)ClipFrames.Fps;
-
-            var videoSource = previousDecode;
-            var audioSource = previousAudioDecode;
+            var plan = plans[k];
+            var previousFrames = plans[k - 1].GeneratedFrames;
             var refPos = cloneRef["pos"]!.AsArray();
             var trimX = ToDouble(refPos[0]) - 380;
             var trimY = ToDouble(refPos[1]) + 900;
 
-            if (tailFrames < previousFrames)
+            if (segment.PreviousVideo.Handoff == PreviousClipHandoff.ReferenceVideo)
             {
-                var frameTrim = BuildImageFromBatchNode(ids.TakeNodeId(), $"Last {tailSeconds:0.##}s of previous clip (frames){SegmentTitleMarker}{k + 1}",
-                    trimX, trimY, -tailFrames, tailFrames);
-                nodes.Add(frameTrim);
-                var frameTrimId = ToInt(frameTrim["id"]);
-                byId[frameTrimId] = frameTrim;
+                // -- Reference-video handoff: the previous clip becomes <Video 1>. The reference node keeps a
+                //    reference video's FIRST frames when it's longer than the new clip and crops it to a valid
+                //    length (17k + 5) by dropping frames off the END -- so anything short of "exactly a valid
+                //    length no longer than the new clip" would throw away the ending. Take the tail ourselves
+                //    (also far cheaper: every reference frame is extra tokens on every sampling step).
+                var wantFrames = segment.PreviousVideo.UseLastSeconds > 0
+                    ? (int)Math.Round(segment.PreviousVideo.UseLastSeconds * ClipFrames.Fps)
+                    : previousFrames;
+                var tailFrames = ClipFrames.LargestValidAtMost(
+                    Math.Min(ClipFrames.NearestValid(wantFrames), Math.Min(previousFrames, ClipFrames.ForSeconds(segment.DurationSeconds))));
+                var tailSeconds = tailFrames / (double)ClipFrames.Fps;
 
-                var toTrimLink = ids.TakeLinkId();
-                links.Add(BuildLink(toTrimLink, previousDecode, 0, frameTrimId, 0, "IMAGE"));
-                frameTrim["inputs"]!.AsArray()[0]!["link"] = toTrimLink;
-                AddOutputLink(byId[previousDecode], 0, toTrimLink);
-                videoSource = frameTrimId;
+                var videoSource = previousDecode;
+                var audioSource = previousAudioDecode;
 
-                if (segment.PreviousVideo.AudioUse != VideoAudioUse.None && previousAudioDecode != 0)
+                if (tailFrames < previousFrames)
                 {
-                    var audioTrim = BuildTrimAudioNode(ids.TakeNodeId(), $"Last {tailSeconds:0.##}s of previous clip (audio){SegmentTitleMarker}{k + 1}",
-                        trimX, trimY + 260, -tailSeconds, tailSeconds);
-                    nodes.Add(audioTrim);
-                    var audioTrimId = ToInt(audioTrim["id"]);
-                    byId[audioTrimId] = audioTrim;
+                    var frameTrim = AddNode(BuildImageFromBatchNode(ids.TakeNodeId(),
+                        $"Last {tailSeconds:0.##}s of previous clip (frames){SegmentTitleMarker}{k + 1}", trimX, trimY, -tailFrames, tailFrames));
+                    Connect(previousDecode, 0, frameTrim, "image", "IMAGE");
+                    videoSource = ToInt(frameTrim["id"]);
 
-                    var toAudioTrimLink = ids.TakeLinkId();
-                    links.Add(BuildLink(toAudioTrimLink, previousAudioDecode, 0, audioTrimId, 0, "AUDIO"));
-                    audioTrim["inputs"]!.AsArray()[0]!["link"] = toAudioTrimLink;
-                    AddOutputLink(byId[previousAudioDecode], 0, toAudioTrimLink);
-                    audioSource = audioTrimId;
+                    if (segment.PreviousVideo.AudioUse != VideoAudioUse.None && previousAudioDecode != 0)
+                    {
+                        var audioTrim = AddNode(BuildTrimAudioNode(ids.TakeNodeId(),
+                            $"Last {tailSeconds:0.##}s of previous clip (audio){SegmentTitleMarker}{k + 1}", trimX, trimY + 260, -tailSeconds, tailSeconds));
+                        Connect(previousAudioDecode, 0, audioTrim, "audio", "AUDIO");
+                        audioSource = ToInt(audioTrim["id"]);
+                    }
+                }
+
+                var videoSlot = GetOrCreateSlotIndex(cloneRef, "ref_videos", "ref_video", 0, "IMAGE");
+                var videoLinkId = ids.TakeLinkId();
+                links.Add(BuildLink(videoLinkId, videoSource, 0, cloneRefId, videoSlot, "IMAGE"));
+                SetSlotLink(cloneRef, "ref_videos.ref_video_0", videoLinkId);
+                AddOutputLink(byId[videoSource], 0, videoLinkId);
+
+                if (segment.PreviousVideo.AudioUse != VideoAudioUse.None && audioSource != 0)
+                {
+                    var audioSlot = GetOrCreateSlotIndex(cloneRef, "ref_video_audios", "ref_video_audio", 0, "AUDIO");
+                    var audioLinkId = ids.TakeLinkId();
+                    links.Add(BuildLink(audioLinkId, audioSource, 0, cloneRefId, audioSlot, "AUDIO"));
+                    SetSlotLink(cloneRef, "ref_video_audios.ref_video_audio_0", audioLinkId);
+                    AddOutputLink(byId[audioSource], 0, audioLinkId);
+                }
+            }
+            else
+            {
+                // -- Pinned-ending handoff (the default): the previous clip's last frames and soundtrack are
+                //    anchored at frame 0 of THIS clip's own timeline with MiniMaxH3AddGuide -- the same node
+                //    Comfy's multiframe template chains onto the ref2va model. The opening seconds are locked to
+                //    the ending, so motion and sound carry over by construction rather than by imitation, and
+                //    it adds no reference tokens. The pinned frames are then dropped from what gets saved, so
+                //    this clip's file is only the new material and the two files butt together.
+                var guideFrames = plan.GuideFrames;
+                var guideSeconds = plan.GuideSeconds;
+                var useAudio = segment.PreviousVideo.AudioUse != VideoAudioUse.None && previousAudioDecode != 0;
+
+                var frameTail = AddNode(BuildImageFromBatchNode(ids.TakeNodeId(),
+                    $"Last {guideSeconds:0.##}s of previous clip (frames){SegmentTitleMarker}{k + 1}", trimX, trimY, -guideFrames, guideFrames));
+                Connect(previousDecode, 0, frameTail, "image", "IMAGE");
+
+                JsonObject? audioTail = null;
+                if (useAudio)
+                {
+                    audioTail = AddNode(BuildTrimAudioNode(ids.TakeNodeId(),
+                        $"Last {guideSeconds:0.##}s of previous clip (audio){SegmentTitleMarker}{k + 1}", trimX, trimY + 260, -guideSeconds, guideSeconds));
+                    Connect(previousAudioDecode, 0, audioTail, "audio", "AUDIO");
+                }
+
+                var addGuide = AddNode(BuildAddGuideNode(ids.TakeNodeId(),
+                    $"Pin previous clip's ending{SegmentTitleMarker}{k + 1}", ToDouble(refPos[0]) + 40, trimY));
+                Connect(cloneRefId, 0, addGuide, "positive", "CONDITIONING");
+                Connect(cloneRefId, 1, addGuide, "latent", "LATENT");
+                if (InputOrigin(links, cloneRef, "vae") is { } videoVae)
+                    Connect(videoVae.Origin, videoVae.Slot, addGuide, "vae", "VAE");
+                if (InputOrigin(links, cloneRef, "audio_vae") is { } audioVae)
+                    Connect(audioVae.Origin, audioVae.Slot, addGuide, "audio_vae", "VAE");
+                Connect(ToInt(frameTail["id"]), 0, addGuide, "image", "IMAGE");
+                if (audioTail is not null)
+                    Connect(ToInt(audioTail["id"]), 0, addGuide, "audio", "AUDIO");
+
+                // The sampler's guider now conditions on the guided conditioning.
+                if (guiderOriginal != 0)
+                    Connect(ToInt(addGuide["id"]), 0, clones[idMap[guiderOriginal]], "conditioning", "CONDITIONING");
+
+                // Drop the pinned frames (and the matching audio) before the clip is muxed and saved.
+                if (createVideoOriginal != 0)
+                {
+                    var createVideo = clones[idMap[createVideoOriginal]];
+                    var createPos = createVideo["pos"]!.AsArray();
+                    var dropFrames = AddNode(BuildImageFromBatchNode(ids.TakeNodeId(),
+                        $"Drop the pinned {guideSeconds:0.##}s (frames){SegmentTitleMarker}{k + 1}",
+                        ToDouble(createPos[0]) - 380, ToDouble(createPos[1]) + 260, guideFrames, 4096));
+                    Connect(idMap[decodeOriginal], 0, dropFrames, "image", "IMAGE");
+                    Connect(ToInt(dropFrames["id"]), 0, createVideo, "images", "IMAGE");
+
+                    if (audioDecodeOriginal != 0)
+                    {
+                        var dropAudio = AddNode(BuildTrimAudioNode(ids.TakeNodeId(),
+                            $"Drop the pinned {guideSeconds:0.##}s (audio){SegmentTitleMarker}{k + 1}",
+                            ToDouble(createPos[0]) - 380, ToDouble(createPos[1]) + 520, guideSeconds, 1000));
+                        Connect(idMap[audioDecodeOriginal], 0, dropAudio, "audio", "AUDIO");
+                        Connect(ToInt(dropAudio["id"]), 0, createVideo, "audio", "AUDIO");
+                    }
                 }
             }
 
-            var videoSlot = GetOrCreateSlotIndex(cloneRef, "ref_videos", "ref_video", 0, "IMAGE");
-            var videoLinkId = ids.TakeLinkId();
-            links.Add(BuildLink(videoLinkId, videoSource, 0, cloneRefId, videoSlot, "IMAGE"));
-            SetSlotLink(cloneRef, "ref_videos.ref_video_0", videoLinkId);
-            AddOutputLink(byId[videoSource], 0, videoLinkId);
-
-            if (segment.PreviousVideo.AudioUse != VideoAudioUse.None && audioSource != 0)
-            {
-                var audioSlot = GetOrCreateSlotIndex(cloneRef, "ref_video_audios", "ref_video_audio", 0, "AUDIO");
-                var audioLinkId = ids.TakeLinkId();
-                links.Add(BuildLink(audioLinkId, audioSource, 0, cloneRefId, audioSlot, "AUDIO"));
-                SetSlotLink(cloneRef, "ref_video_audios.ref_video_audio_0", audioLinkId);
-                AddOutputLink(byId[audioSource], 0, audioLinkId);
-            }
-
-            // -- this segment's own prompt, length, and output name
+            // -- this segment's own prompt, length, and output name. The length is the requested clip plus
+            //    whatever previous-clip ending is pinned onto its front (none for a reference-video handoff).
             if (promptOriginal != 0)
                 clones[idMap[promptOriginal]]["widgets_values"]!.AsArray()[0] = PromptComposer.Compose(view);
             if (durationOriginal != 0)
-                clones[idMap[durationOriginal]]["widgets_values"]!.AsArray()[0] = segment.DurationSeconds;
+                clones[idMap[durationOriginal]]["widgets_values"]!.AsArray()[0] = plan.SavedSeconds + plan.GuideSeconds;
             if (saveOriginal != 0)
                 RetitleAndPrefix(clones[idMap[saveOriginal]], k + 1, "Save Video");
 
             previousDecode = idMap[decodeOriginal];
             previousAudioDecode = audioDecodeOriginal == 0 ? 0 : idMap[audioDecodeOriginal];
-            previousSeconds = segment.DurationSeconds;
         }
+    }
+
+    /// <summary>The (origin node, output slot) currently feeding the named input of a node, or null if unlinked.</summary>
+    private static (int Origin, int Slot)? InputOrigin(JsonArray links, JsonObject node, string inputName)
+    {
+        var input = node["inputs"]!.AsArray().FirstOrDefault(i => i!["name"]?.GetValue<string>() == inputName);
+        if (input?["link"] is not { } linkId) return null;
+
+        var link = links.Select(l => l!.AsArray()).FirstOrDefault(l => ToInt(l[0]) == ToInt(linkId));
+        return link is null ? null : (ToInt(link[1]), ToInt(link[2]));
+    }
+
+    /// <summary>MiniMaxH3AddGuide: anchors an image/clip (and optional soundtrack) at a frame index of the
+    /// new video -- frame_idx 0 here, the very start. Inputs are in the node's own declared order.</summary>
+    private static JsonObject BuildAddGuideNode(int id, string title, double x, double y)
+    {
+        static JsonObject Input(string name, string type, bool optional)
+        {
+            var input = new JsonObject { ["name"] = name, ["type"] = type, ["link"] = null };
+            if (optional) input["shape"] = 7;
+            return input;
+        }
+
+        return new JsonObject
+        {
+            ["id"] = id,
+            ["type"] = "MiniMaxH3AddGuide",
+            ["pos"] = new JsonArray(x, y),
+            ["size"] = new JsonArray(300, 190),
+            ["flags"] = new JsonObject(),
+            ["order"] = 0,
+            ["mode"] = 0,
+            ["inputs"] = new JsonArray(
+                Input("positive", "CONDITIONING", false),
+                Input("vae", "VAE", true),
+                Input("audio_vae", "VAE", true),
+                Input("latent", "LATENT", false),
+                Input("image", "IMAGE", true),
+                Input("audio", "AUDIO", true)),
+            ["outputs"] = new JsonArray(new JsonObject { ["name"] = "positive", ["type"] = "CONDITIONING", ["links"] = null }),
+            ["title"] = title,
+            ["properties"] = new JsonObject { ["Node name for S&R"] = "MiniMaxH3AddGuide" },
+            ["widgets_values"] = new JsonArray(0)
+        };
     }
 
     /// <summary>Core ImageFromBatch: takes <paramref name="length"/> frames starting at

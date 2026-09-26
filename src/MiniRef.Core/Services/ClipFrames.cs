@@ -27,6 +27,18 @@ public static class ClipFrames
         return frames - lower < upper - frames ? lower : upper;
     }
 
+    /// <summary>The longest clip H3 was trained on, in frames (~15.08 s); "longer is untested" per the
+    /// reference node's own tooltip.</summary>
+    public const int MaxTrainedFrames = 362;
+
+    /// <summary>Frames of the previous clip pinned onto the start of a continuation: the requested
+    /// seconds (3 if none given) snapped to a valid clip length, never more than the previous clip has.</summary>
+    public static int PinnedTailFrames(double useLastSeconds, int previousClipFrames)
+    {
+        var wanted = (int)Math.Round((useLastSeconds > 0 ? useLastSeconds : 3.0) * Fps);
+        return LargestValidAtMost(Math.Min(NearestValid(wanted), previousClipFrames));
+    }
+
     /// <summary>The largest valid clip length (17k + 5, at least 5) not exceeding <paramref name="frames"/>.
     /// The reference node crops a reference video to a valid length by dropping frames off its END, so a
     /// tail must already be a valid length or its last frames -- the ones that matter -- are lost.</summary>

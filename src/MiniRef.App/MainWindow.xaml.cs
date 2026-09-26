@@ -151,7 +151,7 @@ public partial class MainWindow : Window
     private void RefreshDerivedState()
     {
         var subjects = ViewModel.Project.Subjects;
-        var videos = ViewModel.CurrentVideos;
+        var videos = ViewModel.CurrentVideos.Where(v => v.IsPromptReference).ToList();
 
         _summaryChips.Clear();
         foreach (var chip in TagChipBuilder.Build(subjects, videos))

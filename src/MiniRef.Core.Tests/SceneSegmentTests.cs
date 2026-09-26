@@ -25,7 +25,7 @@ public class SceneSegmentTests
             Pictures = [new PictureRef { Description = "front" }]
         };
 
-        return new SceneProject
+        var project = new SceneProject
         {
             Name = "Chase",
             Subjects = [hero, rival],
@@ -42,6 +42,12 @@ public class SceneSegmentTests
                 }
             ]
         };
+
+        // These tests exercise the reference-video handoff (a <Video 1> in the prompt); the pinned-ending
+        // default has its own tests below.
+        foreach (var segment in project.Continuations)
+            segment.PreviousVideo.Handoff = PreviousClipHandoff.ReferenceVideo;
+        return project;
     }
 
     [Fact]
@@ -203,6 +209,11 @@ public class SceneSegmentTests
 
         // Segment 1: 9 pictures + 2 audios = 11 files, fine.
         Assert.Empty(ReferenceLimits.Check(project.ForSegment(0)));
+
+        // A pinned ending (the default) is anchored as guide latents, not a reference file: still 11.
+        Assert.Empty(ReferenceLimits.Check(project.ForSegment(1)));
+
+        project.Continuations[0].PreviousVideo.Handoff = PreviousClipHandoff.ReferenceVideo;
 
         // Segment 2 adds the previous clip and its soundtrack: 9 + 2 + 1 + 1 = 13 > 12.
         var problems = ReferenceLimits.Check(project.ForSegment(1));

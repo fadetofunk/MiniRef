@@ -210,7 +210,8 @@ public partial class MainViewModel : ObservableObject
     /// refresh), since adding a picture can push a later segment over.</summary>
     public void RefreshSegmentWarnings()
     {
-        SegmentWarnings = string.Join("\n", ReferenceLimits.Check(Project.ForSegment(SafeSegmentIndex)));
+        SegmentWarnings = string.Join("\n",
+            ReferenceLimits.Check(Project.ForSegment(SafeSegmentIndex)).Concat(ReferenceLimits.CheckLength(Project, SafeSegmentIndex)));
         OnPropertyChanged(nameof(HasSegmentWarnings));
     }
 
@@ -636,6 +637,7 @@ public partial class MainViewModel : ObservableObject
         var limitProblems = Enumerable.Range(0, Project.SegmentCount)
             .SelectMany(i => ReferenceLimits.Check(Project.ForSegment(i))
                 .Select(problem => Project.SegmentCount > 1 ? $"Segment {i + 1}: {problem}" : problem))
+            .Concat(ReferenceLimits.CheckLengths(Project))
             .ToList();
         if (limitProblems.Count > 0 && MessageBox.Show(
                 string.Join("\n", limitProblems) + "\n\nExport anyway?",
