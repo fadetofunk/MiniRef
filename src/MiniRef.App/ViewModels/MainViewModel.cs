@@ -217,6 +217,10 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(HasSegmentWarnings));
     }
 
+    /// <summary>Rolls a fresh base seed (under 2^53, so it survives the workflow's JSON numbers).</summary>
+    [RelayCommand]
+    private void NewSeed() => Project.Seed = Random.Shared.NextInt64(1, 9_000_000_000_000_000);
+
     [RelayCommand]
     private void AddSegment()
     {

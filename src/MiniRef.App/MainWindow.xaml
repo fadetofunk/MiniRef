@@ -242,6 +242,15 @@
                                 Value="{Binding CurrentSegment.DurationSeconds, UpdateSourceTrigger=PropertyChanged}"/>
                     </DockPanel>
 
+                    <TextBlock Text="Seed" FontWeight="Bold" FontSize="14" Margin="0,16,0,6"/>
+                    <CheckBox Content="fix the seed (for A/B tests)" IsChecked="{Binding Project.FixSeed}"
+                              ToolTip="Write fixed seeds into the exported workflow instead of randomizing each run, so re-queuing reproduces the same clips and ComfyUI can reuse everything upstream of an edit. Each segment gets its own seed: this one for segment 1, then +1, +2, ..."/>
+                    <DockPanel Margin="0,4,0,0" IsEnabled="{Binding Project.FixSeed}">
+                        <Button DockPanel.Dock="Right" Content="New" Padding="8,2" Margin="6,0,0,0" Command="{Binding NewSeedCommand}"
+                                ToolTip="Roll a fresh random seed"/>
+                        <TextBox Text="{Binding Project.Seed, UpdateSourceTrigger=LostFocus}" SpellCheck.IsEnabled="False"/>
+                    </DockPanel>
+
                     <TextBlock Text="Aspect Ratio" FontWeight="Bold" FontSize="14" Margin="0,16,0,6"/>
                     <ComboBox ItemsSource="{x:Static local:EnumSources.AspectRatioChoices}"
                               SelectedItem="{Binding Project.AspectRatio}">

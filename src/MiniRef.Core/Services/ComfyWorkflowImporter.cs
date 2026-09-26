@@ -207,6 +207,14 @@ public static partial class ComfyWorkflowImporter
         if (durationNode?["widgets_values"]?.AsArray() is { Count: > 0 } durationWidgets && durationWidgets[0] is { } dur)
             project.DurationSeconds = dur.GetValue<double>();
 
+        // Segment 1's noise node is the first RandomNoise; "fixed" means the export pinned the seeds.
+        if (FindNodeByType(nodes, "RandomNoise")?["widgets_values"]?.AsArray() is { Count: > 1 } noise
+            && noise[1]?.GetValue<string>() == "fixed")
+        {
+            project.FixSeed = true;
+            project.Seed = (long)noise[0]!.GetValue<double>();
+        }
+
         ImportContinuationSegments(project, nodes);
 
         return project;

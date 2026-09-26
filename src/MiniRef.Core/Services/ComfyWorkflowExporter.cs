@@ -255,6 +255,9 @@ public static class ComfyWorkflowExporter
         if (project.SegmentCount > 1)
             AppendContinuationSegments(nodes, links, project, ids);
 
+        if (project.FixSeed)
+            ApplyFixedSeeds(nodes, project.Seed);
+
         if (modelOverrides is { Count: > 0 })
             ApplyModelOverrides(nodes, links, refNode, modelOverrides);
 
@@ -262,6 +265,19 @@ public static class ComfyWorkflowExporter
         root["last_link_id"] = ids.NextLinkId - 1;
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    /// <summary>Sets every RandomNoise node to a fixed seed: the first (segment 1) gets <paramref name="baseSeed"/>,
+    /// each later one -- the clones, appended in segment order -- one more than the last.</summary>
+    private static void ApplyFixedSeeds(JsonArray nodes, long baseSeed)
+    {
+        var index = 0;
+        foreach (var node in nodes.Select(n => n!.AsObject()).Where(n => n["type"]?.GetValue<string>() == "RandomNoise"))
+        {
+            var widgets = node["widgets_values"]!.AsArray();
+            widgets[0] = baseSeed + index++;
+            widgets[1] = "fixed";
+        }
     }
 
     private static JsonObject? FindNodeByType(JsonArray nodes, string type) => nodes

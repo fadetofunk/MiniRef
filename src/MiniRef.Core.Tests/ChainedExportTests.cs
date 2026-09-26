@@ -763,6 +763,46 @@ public class ChainedExportTests
     }
 
     [Fact]
+    public void FixedSeed_PinsEveryNoiseNodeToItsOwnSeed_AndRoundTrips()
+    {
+        var project = ThreeSegmentProject();
+        project.FixSeed = true;
+        project.Seed = 4242;
+
+        var g = Export(project);
+        var noises = g.OfType("RandomNoise");
+        Assert.Equal(3, noises.Count);
+        Assert.Equal([4242L, 4243L, 4244L], noises.Select(n => n["widgets_values"]!.AsArray()[0]!.GetValue<long>()).ToArray());
+        Assert.All(noises, n => Assert.Equal("fixed", n["widgets_values"]!.AsArray()[1]!.GetValue<string>()));
+
+        var imported = ComfyWorkflowImporter.Import(ComfyWorkflowExporter.Export(LoadTemplate(), project));
+        Assert.True(imported.FixSeed);
+        Assert.Equal(4242, imported.Seed);
+    }
+
+    [Fact]
+    public void WithoutAFixedSeed_TheTemplatesRandomizeIsLeftAlone()
+    {
+        var g = Export(ThreeSegmentProject());
+
+        Assert.All(g.OfType("RandomNoise"), n => Assert.Equal("randomize", n["widgets_values"]!.AsArray()[1]!.GetValue<string>()));
+        Assert.False(ComfyWorkflowImporter.Import(ComfyWorkflowExporter.Export(LoadTemplate(), ThreeSegmentProject())).FixSeed);
+    }
+
+    [Fact]
+    public void FixedSeed_AlsoAppliesToASingleClip()
+    {
+        var project = ThreeSegmentProject();
+        project.Continuations.Clear();
+        project.FixSeed = true;
+        project.Seed = 99;
+
+        var noise = Assert.Single(Export(project).OfType("RandomNoise"));
+        Assert.Equal(99L, noise["widgets_values"]!.AsArray()[0]!.GetValue<long>());
+        Assert.Equal("fixed", noise["widgets_values"]!.AsArray()[1]!.GetValue<string>());
+    }
+
+    [Fact]
     public void ASingleSegmentProject_ExportsExactlyAsBefore()
     {
         var project = ThreeSegmentProject();

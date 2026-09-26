@@ -50,6 +50,17 @@ public partial class SceneProject : ObservableObject
     /// invisible, since they are normally cut. Off by default; the joined video will repeat the pinned span.</summary>
     [ObservableProperty] private bool keepPinnedFrames;
 
+    /// <summary>Write fixed seeds into the exported workflow's noise nodes instead of leaving them on the
+    /// template's "randomize". A fixed seed makes a re-queue reproduce the same clips -- and lets ComfyUI
+    /// reuse cached results for anything upstream of an edit -- which is what A/B testing a prompt or a
+    /// handoff setting needs. Each segment gets its own seed (<see cref="Seed"/> + its index) so the clips
+    /// of a chain don't all draw the same noise.</summary>
+    [ObservableProperty] private bool fixSeed;
+
+    /// <summary>The base seed used when <see cref="FixSeed"/> is on: segment 1 uses it, segment N uses it + (N - 1).
+    /// Kept under 2^53 so it survives the round trip through the workflow's JSON numbers.</summary>
+    [ObservableProperty] private long seed = 1_234_567_890;
+
     /// <summary>Total clips in the chain: this project's own (segment 1) plus every continuation.</summary>
     [JsonIgnore]
     public int SegmentCount => 1 + Continuations.Count;
