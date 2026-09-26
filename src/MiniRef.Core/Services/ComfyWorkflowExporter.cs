@@ -124,7 +124,8 @@ public static class ComfyWorkflowExporter
         ClearExistingRefSlots(nodes, links, refNode, "ref_videos.ref_video_");
         ClearExistingRefSlots(nodes, links, refNode, "ref_video_audios.ref_video_audio_");
 
-        var (_, pictureNumbers, audioNumbers) = ReferenceNumberer.NumberSubjects(project.Subjects);
+        var (_, pictureNumbers, audioNumbers) = ReferenceNumberer.NumberSubjects(
+            project.Subjects, ReferenceNumberer.CountVideoAudios(project.SourceVideos) + 1);
 
         var pictures = project.Subjects
             .SelectMany(s => s.Pictures.Select(p => (Subject: s, Picture: p)))
@@ -320,6 +321,7 @@ public static class ComfyWorkflowExporter
 
         var previousDecode = decodeOriginal;
         var previousAudioDecode = audioDecodeOriginal;
+        var previousSeconds = project.DurationSeconds;
 
         // Snapshot the original stack's links once; every clone is stamped from these.
         var stackLinks = links.Select(l => l!.AsArray())
@@ -385,19 +387,69 @@ public static class ComfyWorkflowExporter
                     RemoveLink(byId, links, ToInt(linkId));
             }
 
+            // -- how much of the previous clip to hand over. The reference node keeps a reference video's
+            //    FIRST frames when it's longer than the new clip and crops it to a valid length (17k + 5)
+            //    by dropping frames off the END -- so anything short of "exactly a valid length no longer
+            //    than the new clip" would throw away the ending, which is what a continuation needs. Take
+            //    the tail ourselves instead (also far cheaper: every reference frame is extra tokens on
+            //    every sampling step).
+            var previousFrames = ClipFrames.ForSeconds(previousSeconds);
+            var wantFrames = segment.PreviousVideo.UseLastSeconds > 0
+                ? (int)Math.Round(segment.PreviousVideo.UseLastSeconds * ClipFrames.Fps)
+                : previousFrames;
+            var tailFrames = ClipFrames.LargestValidAtMost(
+                Math.Min(ClipFrames.NearestValid(wantFrames), Math.Min(previousFrames, ClipFrames.ForSeconds(segment.DurationSeconds))));
+            var tailSeconds = tailFrames / (double)ClipFrames.Fps;
+
+            var videoSource = previousDecode;
+            var audioSource = previousAudioDecode;
+            var refPos = cloneRef["pos"]!.AsArray();
+            var trimX = ToDouble(refPos[0]) - 380;
+            var trimY = ToDouble(refPos[1]) + 900;
+
+            if (tailFrames < previousFrames)
+            {
+                var frameTrim = BuildImageFromBatchNode(ids.TakeNodeId(), $"Last {tailSeconds:0.##}s of previous clip (frames){SegmentTitleMarker}{k + 1}",
+                    trimX, trimY, -tailFrames, tailFrames);
+                nodes.Add(frameTrim);
+                var frameTrimId = ToInt(frameTrim["id"]);
+                byId[frameTrimId] = frameTrim;
+
+                var toTrimLink = ids.TakeLinkId();
+                links.Add(BuildLink(toTrimLink, previousDecode, 0, frameTrimId, 0, "IMAGE"));
+                frameTrim["inputs"]!.AsArray()[0]!["link"] = toTrimLink;
+                AddOutputLink(byId[previousDecode], 0, toTrimLink);
+                videoSource = frameTrimId;
+
+                if (segment.PreviousVideo.AudioUse != VideoAudioUse.None && previousAudioDecode != 0)
+                {
+                    var audioTrim = BuildTrimAudioNode(ids.TakeNodeId(), $"Last {tailSeconds:0.##}s of previous clip (audio){SegmentTitleMarker}{k + 1}",
+                        trimX, trimY + 260, -tailSeconds, tailSeconds);
+                    nodes.Add(audioTrim);
+                    var audioTrimId = ToInt(audioTrim["id"]);
+                    byId[audioTrimId] = audioTrim;
+
+                    var toAudioTrimLink = ids.TakeLinkId();
+                    links.Add(BuildLink(toAudioTrimLink, previousAudioDecode, 0, audioTrimId, 0, "AUDIO"));
+                    audioTrim["inputs"]!.AsArray()[0]!["link"] = toAudioTrimLink;
+                    AddOutputLink(byId[previousAudioDecode], 0, toAudioTrimLink);
+                    audioSource = audioTrimId;
+                }
+            }
+
             var videoSlot = GetOrCreateSlotIndex(cloneRef, "ref_videos", "ref_video", 0, "IMAGE");
             var videoLinkId = ids.TakeLinkId();
-            links.Add(BuildLink(videoLinkId, previousDecode, 0, cloneRefId, videoSlot, "IMAGE"));
+            links.Add(BuildLink(videoLinkId, videoSource, 0, cloneRefId, videoSlot, "IMAGE"));
             SetSlotLink(cloneRef, "ref_videos.ref_video_0", videoLinkId);
-            AddOutputLink(byId[previousDecode], 0, videoLinkId);
+            AddOutputLink(byId[videoSource], 0, videoLinkId);
 
-            if (segment.PreviousVideo.AudioUse != VideoAudioUse.None && previousAudioDecode != 0)
+            if (segment.PreviousVideo.AudioUse != VideoAudioUse.None && audioSource != 0)
             {
                 var audioSlot = GetOrCreateSlotIndex(cloneRef, "ref_video_audios", "ref_video_audio", 0, "AUDIO");
                 var audioLinkId = ids.TakeLinkId();
-                links.Add(BuildLink(audioLinkId, previousAudioDecode, 0, cloneRefId, audioSlot, "AUDIO"));
+                links.Add(BuildLink(audioLinkId, audioSource, 0, cloneRefId, audioSlot, "AUDIO"));
                 SetSlotLink(cloneRef, "ref_video_audios.ref_video_audio_0", audioLinkId);
-                AddOutputLink(byId[previousAudioDecode], 0, audioLinkId);
+                AddOutputLink(byId[audioSource], 0, audioLinkId);
             }
 
             // -- this segment's own prompt, length, and output name
@@ -410,8 +462,44 @@ public static class ComfyWorkflowExporter
 
             previousDecode = idMap[decodeOriginal];
             previousAudioDecode = audioDecodeOriginal == 0 ? 0 : idMap[audioDecodeOriginal];
+            previousSeconds = segment.DurationSeconds;
         }
     }
+
+    /// <summary>Core ImageFromBatch: takes <paramref name="length"/> frames starting at
+    /// <paramref name="batchIndex"/>; a negative index counts from the end, so (-N, N) is the last N.</summary>
+    private static JsonObject BuildImageFromBatchNode(int id, string title, double x, double y, int batchIndex, int length) => new()
+    {
+        ["id"] = id,
+        ["type"] = "ImageFromBatch",
+        ["pos"] = new JsonArray(x, y),
+        ["size"] = new JsonArray(290, 80),
+        ["flags"] = new JsonObject(),
+        ["order"] = 0,
+        ["mode"] = 0,
+        ["inputs"] = new JsonArray(new JsonObject { ["name"] = "image", ["type"] = "IMAGE", ["link"] = null }),
+        ["outputs"] = new JsonArray(new JsonObject { ["name"] = "IMAGE", ["type"] = "IMAGE", ["links"] = null }),
+        ["title"] = title,
+        ["properties"] = new JsonObject { ["Node name for S&R"] = "ImageFromBatch" },
+        ["widgets_values"] = new JsonArray(batchIndex, length)
+    };
+
+    /// <summary>Core TrimAudioDuration: a negative start counts from the end, so (-S, S) is the last S seconds.</summary>
+    private static JsonObject BuildTrimAudioNode(int id, string title, double x, double y, double startSeconds, double durationSeconds) => new()
+    {
+        ["id"] = id,
+        ["type"] = "TrimAudioDuration",
+        ["pos"] = new JsonArray(x, y),
+        ["size"] = new JsonArray(290, 80),
+        ["flags"] = new JsonObject(),
+        ["order"] = 0,
+        ["mode"] = 0,
+        ["inputs"] = new JsonArray(new JsonObject { ["name"] = "audio", ["type"] = "AUDIO", ["link"] = null }),
+        ["outputs"] = new JsonArray(new JsonObject { ["name"] = "AUDIO", ["type"] = "AUDIO", ["links"] = null }),
+        ["title"] = title,
+        ["properties"] = new JsonObject { ["Node name for S&R"] = "TrimAudioDuration" },
+        ["widgets_values"] = new JsonArray(startSeconds, durationSeconds)
+    };
 
     /// <summary>Names a SaveVideo after its segment, e.g. ".../ComfyUI_part2", so each clip of the
     /// chain lands in its own numbered file.</summary>

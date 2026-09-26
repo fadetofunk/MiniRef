@@ -267,6 +267,17 @@ public static partial class ComfyWorkflowImporter
             if (durationNode?["widgets_values"]?.AsArray() is { Count: > 0 } widgets && widgets[0] is { } seconds)
                 segment.DurationSeconds = seconds.GetValue<double>();
 
+            // The tail trim is an ImageFromBatch titled "... - Segment N"; its length is the frame count.
+            // No such node means the whole previous clip was used.
+            var trimNode = nodes.Select(n => n!.AsObject()).FirstOrDefault(n =>
+                n["type"]?.GetValue<string>() == "ImageFromBatch"
+                && SegmentTitleRegex.Match(n["title"]?.GetValue<string>() ?? "") is { Success: true } m
+                && int.Parse(m.Groups["n"].Value) == number);
+            segment.PreviousVideo.UseLastSeconds =
+                trimNode?["widgets_values"]?.AsArray() is { Count: > 1 } trimWidgets && trimWidgets[1] is { } frames
+                    ? Math.Round(frames.GetValue<double>() / ClipFrames.Fps, 1)
+                    : 0;
+
             project.Continuations.Add(segment);
         }
     }

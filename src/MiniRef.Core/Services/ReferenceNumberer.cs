@@ -15,19 +15,20 @@ public static partial class ReferenceNumberer
     public static string SpeakerTag(int subjectNumber) => $"(S{subjectNumber})";
 
     /// <summary>Assigns &lt;Subject N&gt;/&lt;Picture N&gt;/&lt;Audio N&gt; numbers from subject
-    /// list order alone. Used both by <see cref="Compute"/> and directly by the UI to label
+    /// list order alone (subject audios start at <paramref name="firstAudioNumber"/>, which is one past
+    /// <see cref="CountVideoAudios"/> because video soundtracks are numbered first). Used both by <see cref="Compute"/> and directly by the UI to label
     /// insert-tag chip buttons, so the numbers shown while writing always match the composed output.</summary>
     public static (
         IReadOnlyDictionary<Guid, int> SubjectNumbers,
         IReadOnlyDictionary<Guid, int> PictureNumbers,
-        IReadOnlyDictionary<Guid, int> AudioNumbers) NumberSubjects(IReadOnlyList<Subject> subjects)
+        IReadOnlyDictionary<Guid, int> AudioNumbers) NumberSubjects(IReadOnlyList<Subject> subjects, int firstAudioNumber = 1)
     {
         var subjectNumbers = new Dictionary<Guid, int>();
         var pictureNumbers = new Dictionary<Guid, int>();
         var audioNumbers = new Dictionary<Guid, int>();
 
         var pictureCounter = 0;
-        var audioCounter = 0;
+        var audioCounter = firstAudioNumber - 1;
         for (var i = 0; i < subjects.Count; i++)
         {
             var subject = subjects[i];
@@ -53,19 +54,22 @@ public static partial class ReferenceNumberer
         return videoNumbers;
     }
 
-    /// <summary>Assigns an &lt;Audio N&gt; number to each source video whose own soundtrack is in use
-    /// (<see cref="VideoRef.AudioUse"/> not None), continuing on from the last subject audio, in
-    /// video-list order. The numbers are keyed by the VideoRef's Id and merged into
+    /// <summary>How many source videos have their own soundtrack in use
+    /// (<see cref="VideoRef.AudioUse"/> not None) -- each takes one &lt;Audio N&gt; number.</summary>
+    public static int CountVideoAudios(IEnumerable<VideoRef> videos) => videos.Count(v => v.AudioUse != VideoAudioUse.None);
+
+    /// <summary>Assigns an &lt;Audio N&gt; number to each source video whose own soundtrack is in use,
+    /// in video-list order starting at 1, keyed by the VideoRef's Id. Merged into
     /// <see cref="ReferenceNumbering.AudioNumbers"/> by <see cref="Compute"/>, so the existing
-    /// tag-renumbering already follows them when a subject audio is added or removed.
+    /// tag-renumbering follows them.
     ///
-    /// ASSUMPTION: video soundtracks number after the standalone audios. The guide says tags follow
-    /// the order inputs were connected, and the reference node's slot order is ref_images,
-    /// ref_videos, ref_video_audios, ref_audios -- which could put these first instead. Unconfirmed;
-    /// this is the one place to change if a real run shows the other order.</summary>
-    public static IReadOnlyDictionary<Guid, int> NumberVideoAudios(IReadOnlyList<Subject> subjects, IReadOnlyList<VideoRef> videos)
+    /// These come BEFORE every subject audio: MiniMaxH3ReferenceToVideo emits a reference video's
+    /// soundtrack as its own audio item ahead of that video, and standalone reference audios after all
+    /// videos (confirmed against the node's source), so the soundtrack is &lt;Audio 1&gt; and the first
+    /// subject voice is &lt;Audio 2&gt; -- which is why <see cref="NumberSubjects"/> takes an offset.</summary>
+    public static IReadOnlyDictionary<Guid, int> NumberVideoAudios(IReadOnlyList<VideoRef> videos)
     {
-        var counter = subjects.Sum(s => s.Audios.Count);
+        var counter = 0;
         var numbers = new Dictionary<Guid, int>();
         foreach (var video in videos)
         {
@@ -100,11 +104,12 @@ public static partial class ReferenceNumberer
 
     public static ReferenceNumbering Compute(SceneProject project)
     {
-        var (subjectNumbers, pictureNumbers, subjectAudioNumbers) = NumberSubjects(project.Subjects);
+        var (subjectNumbers, pictureNumbers, subjectAudioNumbers) =
+            NumberSubjects(project.Subjects, CountVideoAudios(project.SourceVideos) + 1);
         var videoNumbers = NumberVideos(project.SourceVideos);
 
         var audioNumbers = new Dictionary<Guid, int>(subjectAudioNumbers);
-        foreach (var (videoId, number) in NumberVideoAudios(project.Subjects, project.SourceVideos))
+        foreach (var (videoId, number) in NumberVideoAudios(project.SourceVideos))
             audioNumbers[videoId] = number;
         var speakerNumbers = NumberSpeakers(project.Shots);
         var shotNumbers = new Dictionary<Guid, int>();

@@ -367,6 +367,14 @@
                                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                    Visibility="{Binding FromPreviousSegment, Converter={StaticResource BoolToVis}}"
                                                    Text="The previous segment's finished clip -- fed straight from it inside the exported workflow, so there's no file to pick."/>
+                                        <DockPanel Margin="0,4,0,0"
+                                                   Visibility="{Binding FromPreviousSegment, Converter={StaticResource BoolToVis}}"
+                                                   ToolTip="How much of the previous clip is handed to this segment, counted back from its end. The ending motion and sound are what a continuation needs, and every reference frame costs extra memory and time on every sampling step -- a short tail is far cheaper than the whole clip. Snapped to a valid clip length, and never longer than this segment itself. 0 uses the whole previous clip.">
+                                            <TextBlock Text="Use only the last" VerticalAlignment="Center" FontSize="11"/>
+                                            <TextBox Width="48" Margin="6,0,6,0" Text="{Binding UseLastSeconds, StringFormat=0.##}"/>
+                                            <TextBlock Text="s  (0 = whole clip)" VerticalAlignment="Center" FontSize="11"
+                                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                                        </DockPanel>
                                         <DockPanel Margin="0,4,0,0" LastChildFill="True"
                                                    Visibility="{Binding FromPreviousSegment, Converter={StaticResource InverseBoolToVisibility}}">
                                             <Button DockPanel.Dock="Left" Content="Browse..." Padding="6,2"

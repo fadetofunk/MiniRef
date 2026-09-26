@@ -157,7 +157,8 @@ public partial class MainWindow : Window
         foreach (var chip in TagChipBuilder.Build(subjects, videos))
             _summaryChips.Add(chip);
 
-        var (_, pictureNumbers, audioNumbers) = ReferenceNumberer.NumberSubjects(subjects);
+        var (_, pictureNumbers, audioNumbers) = ReferenceNumberer.NumberSubjects(
+            subjects, ReferenceNumberer.CountVideoAudios(videos) + 1);
         foreach (var subject in subjects)
         {
             foreach (var picture in subject.Pictures)

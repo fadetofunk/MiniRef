@@ -99,8 +99,10 @@ public class SceneSegmentTests
 
         Assert.Contains("[reference generation + video continuation + audio reference]", second);
         Assert.Contains("<Video 1> is the source video, which the target video continues from the end of.", second);
-        // Hero's voice is <Audio 1>; the previous clip's soundtrack follows it as <Audio 2>.
-        Assert.Contains("<Audio 2> is the synchronized audio track of <Video 1>", second);
+        // The previous clip's soundtrack is numbered first, so it is <Audio 1> and Hero's voice moves to <Audio 2>.
+        Assert.Contains("<Audio 1> is the synchronized audio track of <Video 1>", second);
+        Assert.Contains("<Audio 2> is the voice-timbre reference for <Subject 1>", second);
+        Assert.Contains("<Audio 1> is the voice-timbre reference for <Subject 1>", first);
         Assert.Contains("The chase continues.", second);
         Assert.DoesNotContain("The chase begins.", second);
 
@@ -113,21 +115,23 @@ public class SceneSegmentTests
     public void RemovingASubject_RewritesTheSharedTagsInEverySegment_ButLeavesEachSegmentsVideoTagAlone()
     {
         var project = TwoSegmentProject();
+        project.Subjects[1].Audios.Add(new AudioRef());   // Rival gets a voice too
         var segment = project.Continuations[0];
-        segment.Shots.Add(new Shot { Text = "Continuing from <Video 1>, with <Audio 2> carrying on and <Picture 2> still framed." });
+        // In segment 2: <Audio 1> = previous clip's soundtrack, <Audio 2> = Hero's voice, <Audio 3> = Rival's.
+        segment.Shots.Add(new Shot { Text = "Continuing from <Video 1> with <Audio 1> carrying on, <Audio 3> speaking, and <Picture 2> still framed." });
 
         var before = ReferenceNumberer.ComputeAllSegments(project);
-        project.Subjects.RemoveAt(0);   // Hero (subject 1, picture 1, voice audio 1) goes away
+        project.Subjects.RemoveAt(0);   // Hero (subject 1, picture 1, voice) goes away
         var after = ReferenceNumberer.ComputeAllSegments(project);
         ReferenceNumberer.RewriteTagsAfterRenumbering(project, before, after);
 
-        // Rival slides from <Subject 2>/<Picture 2> to <Subject 1>/<Picture 1> in the continuation...
-        // (Hero's own <Subject 1> tag is left dangling for the author to notice, as elsewhere.)
+        // Rival slides from <Subject 2>/<Picture 2>/<Audio 3> to <Subject 1>/<Picture 1>/<Audio 2> in the continuation
+        // (Hero's own <Subject 1> tag is left dangling for the author to notice, as elsewhere)...
         Assert.Equal("<Subject 1> leaps the gap while <Subject 1> follows, <Picture 1> in frame.", segment.Shots[0].Text);
+        Assert.Contains("<Audio 2> speaking", segment.Shots[1].Text);
         Assert.Contains("<Picture 1> still framed", segment.Shots[1].Text);
 
-        // ...the previous clip's soundtrack slides from <Audio 2> to <Audio 1> now that the voice audio
-        // before it is gone, and <Video 1> -- unique to this segment -- is untouched.
+        // ...while the previous clip's soundtrack (<Audio 1>) and <Video 1> -- unique to this segment -- don't move.
         Assert.Contains("with <Audio 1> carrying on", segment.Shots[1].Text);
         Assert.Contains("Continuing from <Video 1>", segment.Shots[1].Text);
 

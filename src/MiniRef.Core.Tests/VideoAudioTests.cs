@@ -32,7 +32,7 @@ public class VideoAudioTests
     };
 
     [Fact]
-    public void VideoSoundtrack_TakesTheNextAudioNumber_AfterEverySubjectAudio()
+    public void VideoSoundtracks_AreNumberedBeforeEverySubjectAudio()
     {
         var project = ProjectWithVoiceAndContinuationVideo(VideoAudioUse.Reference);
         project.SourceVideos.Add(new VideoRef { AudioUse = VideoAudioUse.None });
@@ -40,20 +40,23 @@ public class VideoAudioTests
 
         var numbering = ReferenceNumberer.Compute(project);
 
-        Assert.Equal(1, numbering.AudioNumber(project.Subjects[0].Audios[0].Id));
-        Assert.Equal(2, numbering.AudioNumber(project.SourceVideos[0].Id));
+        // MiniMaxH3ReferenceToVideo emits a video's soundtrack ahead of the standalone audios, so the
+        // soundtracks take <Audio 1..v> and the subject's voice shifts up behind them.
+        Assert.Equal(1, numbering.AudioNumber(project.SourceVideos[0].Id));
         Assert.Equal(0, numbering.AudioNumber(project.SourceVideos[1].Id));   // not in use -> no number
-        Assert.Equal(3, numbering.AudioNumber(project.SourceVideos[2].Id));
+        Assert.Equal(2, numbering.AudioNumber(project.SourceVideos[2].Id));
+        Assert.Equal(3, numbering.AudioNumber(project.Subjects[0].Audios[0].Id));
     }
 
     [Fact]
     public void Compose_DescribesTheVideoSoundtrack_ReuseVersusReference()
     {
         var reuse = PromptComposer.Compose(ProjectWithVoiceAndContinuationVideo(VideoAudioUse.Reuse));
-        Assert.Contains("<Audio 2> is the synchronized audio track of <Video 1> and is reused in the target video.", reuse);
+        Assert.Contains("<Audio 1> is the synchronized audio track of <Video 1> and is reused in the target video.", reuse);
+        Assert.Contains("<Audio 2> is the voice-timbre reference for <Subject 1>", reuse);
 
         var reference = PromptComposer.Compose(ProjectWithVoiceAndContinuationVideo(VideoAudioUse.Reference));
-        Assert.Contains("<Audio 2> is the synchronized audio track of <Video 1>; the target video's audio continues its audible characteristics.", reference);
+        Assert.Contains("<Audio 1> is the synchronized audio track of <Video 1>; the target video's audio continues its audible characteristics.", reference);
 
         var none = PromptComposer.Compose(ProjectWithVoiceAndContinuationVideo(VideoAudioUse.None));
         Assert.DoesNotContain("synchronized audio track", none);

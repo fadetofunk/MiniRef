@@ -13,7 +13,8 @@ public static class TagChipBuilder
     public static List<TagChip> Build(IReadOnlyList<Subject> subjects, IReadOnlyList<VideoRef>? sourceVideos = null)
     {
         var chips = new List<TagChip>();
-        var (subjectNumbers, pictureNumbers, audioNumbers) = ReferenceNumberer.NumberSubjects(subjects);
+        var (subjectNumbers, pictureNumbers, audioNumbers) = ReferenceNumberer.NumberSubjects(
+            subjects, ReferenceNumberer.CountVideoAudios(sourceVideos ?? []) + 1);
 
         foreach (var s in subjects)
         {
@@ -31,7 +32,7 @@ public static class TagChipBuilder
         if (sourceVideos is not null)
         {
             var videoNumbers = ReferenceNumberer.NumberVideos(sourceVideos);
-            var videoAudioNumbers = ReferenceNumberer.NumberVideoAudios(subjects, sourceVideos);
+            var videoAudioNumbers = ReferenceNumberer.NumberVideoAudios(sourceVideos);
             foreach (var v in sourceVideos)
             {
                 var n = videoNumbers[v.Id];

@@ -35,7 +35,8 @@ public partial class SceneSegment : ObservableObject
     {
         FromPreviousSegment = true,
         Description = "the source video, which the target video continues from the end of",
-        AudioUse = VideoAudioUse.Reference
+        AudioUse = VideoAudioUse.Reference,
+        UseLastSeconds = 3.0
     };
 
     private ObservableCollection<VideoRef>? _videoList;
