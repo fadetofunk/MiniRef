@@ -225,6 +225,12 @@
                               Visibility="{Binding HasMultipleSegments, Converter={StaticResource BoolToVis}}"
                               ToolTip="Adds nodes that join every clip -- frames and audio -- into one extra video, saved next to the individual clips. Each pinned-ending clip contributes only its new material, so the pieces butt together."/>
 
+                    <CheckBox Content="also save each clip on its own" Margin="20,4,0,0"
+                              IsChecked="{Binding Project.SaveIndividualClips}"
+                              IsEnabled="{Binding Project.SaveJoinedVideo}"
+                              Visibility="{Binding HasMultipleSegments, Converter={StaticResource BoolToVis}}"
+                              ToolTip="Untick to save ONLY the joined video. ComfyUI's Assets tab previews a job by the first saved output to finish -- clip 1 -- so with every clip saved, someone using only the browser sees clip 1 and not the joined video. With this off, the joined video is the only output and is what shows up (and downloads)."/>
+
                     <CheckBox Content="keep pinned frames in each clip (to check the handoff)" Margin="0,4,0,0"
                               IsChecked="{Binding Project.KeepPinnedFrames}"
                               Visibility="{Binding HasMultipleSegments, Converter={StaticResource BoolToVis}}"

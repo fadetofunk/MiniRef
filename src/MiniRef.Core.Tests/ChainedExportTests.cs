@@ -687,6 +687,52 @@ public class ChainedExportTests
     }
 
     [Fact]
+    public void JoinedOnly_LeavesTheJoinedVideoAsTheOnlySavedOutput()
+    {
+        var project = JoinedProject();
+        project.SaveIndividualClips = false;
+
+        var g = Export(project);
+
+        // Only the joined SaveVideo remains, and nothing dangles from the removed clip saves.
+        var save = Assert.Single(g.OfType("SaveVideo"));
+        Assert.EndsWith("_joined", save["widgets_values"]!.AsArray()[0]!.GetValue<string>());
+        Assert.Equal("CreateVideo", g.Feeder(save, "video")!.Value.Origin["type"]!.GetValue<string>());
+        Assert.Equal("BatchImagesNode", g.Feeder(g.Feeder(save, "video")!.Value.Origin, "images")!.Value.Origin["type"]!.GetValue<string>());
+
+        var live = g.Links.Select(l => l[0]!.GetValue<double>()).ToHashSet();
+        foreach (var node in g.Nodes)
+            foreach (var output in node["outputs"]?.AsArray() ?? [])
+                foreach (var l in output!["links"]?.AsArray() ?? [])
+                    Assert.Contains(l!.GetValue<double>(), live);
+        foreach (var link in g.Links)
+        {
+            var target = g.Node((int)link[3]!.GetValue<double>());
+            Assert.Equal(link[0]!.GetValue<double>(), target["inputs"]!.AsArray()[(int)link[4]!.GetValue<double>()]!["link"]!.GetValue<double>());
+        }
+
+        // The three clips still generate (they feed the join); the import reads the choice back.
+        Assert.Equal(3, g.OfType("MiniMaxH3ReferenceToVideo").Count);
+        var imported = ComfyWorkflowImporter.Import(ComfyWorkflowExporter.Export(LoadTemplate(), project));
+        Assert.False(imported.SaveIndividualClips);
+        Assert.True(imported.SaveJoinedVideo);
+        Assert.Equal(3, imported.SegmentCount);
+    }
+
+    [Fact]
+    public void ClipsAreStillSavedByDefault_AndWhenTheJoinedVideoIsOff()
+    {
+        Assert.Equal(4, Export(JoinedProject()).OfType("SaveVideo").Count);      // three clips + joined
+        Assert.True(ComfyWorkflowImporter.Import(ComfyWorkflowExporter.Export(LoadTemplate(), JoinedProject())).SaveIndividualClips);
+
+        // "joined only" needs a joined video; with it off, the clips are saved regardless
+        var noJoin = JoinedProject();
+        noJoin.SaveJoinedVideo = false;
+        noJoin.SaveIndividualClips = false;
+        Assert.Equal(3, Export(noJoin).OfType("SaveVideo").Count);
+    }
+
+    [Fact]
     public void Joined_CanBeSwitchedOff_AndIsNeverAddedForASingleClip()
     {
         var off = JoinedProject();
