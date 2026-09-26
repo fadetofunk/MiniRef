@@ -571,6 +571,29 @@ public class ChainedExportTests
     }
 
     [Fact]
+    public void KeepPinnedFrames_LeavesThePinnedSpanInEachContinuationsFile_AndRoundTrips()
+    {
+        var project = PinnedThreeSegmentProject();
+        project.KeepPinnedFrames = true;
+
+        var g = Export(project);
+
+        // No "Drop the pinned ..." nodes: each CreateVideo takes its decode straight from the sampler's decode
+        Assert.DoesNotContain(g.OfType("ImageFromBatch"), n => n["title"]!.GetValue<string>().StartsWith("Drop"));
+        Assert.DoesNotContain(g.OfType("TrimAudioDuration"), n => n["title"]!.GetValue<string>().StartsWith("Drop"));
+        foreach (var create in g.OfType("CreateVideo"))
+        {
+            Assert.Equal("VAEDecode", g.Feeder(create, "images")!.Value.Origin["type"]!.GetValue<string>());
+            Assert.Equal("VAEDecodeAudio", g.Feeder(create, "audio")!.Value.Origin["type"]!.GetValue<string>());
+        }
+        // the pin itself is unaffected
+        Assert.Equal(2, g.OfType("MiniMaxH3AddGuide").Count);
+
+        Assert.True(ComfyWorkflowImporter.Import(ComfyWorkflowExporter.Export(LoadTemplate(), project)).KeepPinnedFrames);
+        Assert.False(ComfyWorkflowImporter.Import(ComfyWorkflowExporter.Export(LoadTemplate(), PinnedThreeSegmentProject())).KeepPinnedFrames);
+    }
+
+    [Fact]
     public void PinnedEnding_RoundTripsThroughAnExportAndImport()
     {
         var project = PinnedThreeSegmentProject();

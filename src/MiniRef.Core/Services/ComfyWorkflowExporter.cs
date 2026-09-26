@@ -530,8 +530,9 @@ public static class ComfyWorkflowExporter
                 if (guiderOriginal != 0)
                     Connect(ToInt(addGuide["id"]), 0, clones[idMap[guiderOriginal]], "conditioning", "CONDITIONING");
 
-                // Drop the pinned frames (and the matching audio) before the clip is muxed and saved.
-                if (createVideoOriginal != 0)
+                // Drop the pinned frames (and the matching audio) before the clip is muxed and saved --
+                // unless the diagnostic is on, which keeps them so the handoff can be inspected.
+                if (createVideoOriginal != 0 && !project.KeepPinnedFrames)
                 {
                     var createVideo = clones[idMap[createVideoOriginal]];
                     var createPos = createVideo["pos"]!.AsArray();

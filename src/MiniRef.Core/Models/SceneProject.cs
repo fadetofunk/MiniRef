@@ -44,6 +44,12 @@ public partial class SceneProject : ObservableObject
     /// and audio -- into one extra video, saved alongside the individual clips. Ignored for a single clip.</summary>
     [ObservableProperty] private bool saveJoinedVideo = true;
 
+    /// <summary>A diagnostic for pinned-ending continuations: leave the pinned frames and sound at the
+    /// start of each continuation's saved file instead of dropping them. Playing that opening against the
+    /// previous clip's ending shows whether the model actually held the pinned frames -- which is otherwise
+    /// invisible, since they are normally cut. Off by default; the joined video will repeat the pinned span.</summary>
+    [ObservableProperty] private bool keepPinnedFrames;
+
     /// <summary>Total clips in the chain: this project's own (segment 1) plus every continuation.</summary>
     [JsonIgnore]
     public int SegmentCount => 1 + Continuations.Count;

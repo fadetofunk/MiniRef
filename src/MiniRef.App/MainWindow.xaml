@@ -225,6 +225,11 @@
                               Visibility="{Binding HasMultipleSegments, Converter={StaticResource BoolToVis}}"
                               ToolTip="Adds nodes that join every clip -- frames and audio -- into one extra video, saved next to the individual clips. Each pinned-ending clip contributes only its new material, so the pieces butt together."/>
 
+                    <CheckBox Content="keep pinned frames in each clip (to check the handoff)" Margin="0,4,0,0"
+                              IsChecked="{Binding Project.KeepPinnedFrames}"
+                              Visibility="{Binding HasMultipleSegments, Converter={StaticResource BoolToVis}}"
+                              ToolTip="Diagnostic. Normally the previous clip's pinned ending is cut from the start of each continuation's saved file. Turn this on to keep it, then compare the opening of that clip with the previous clip's ending: if they match, the pin held and any hard cut comes from the new content (usually the prompt); if not, the pin isn't holding. The joined video will repeat the pinned span while this is on."/>
+
                     <TextBlock Text="{Binding SegmentWarnings}" TextWrapping="Wrap" FontSize="11" Margin="0,8,0,0"
                                Foreground="{DynamicResource SystemFillColorCautionBrush}"
                                Visibility="{Binding HasSegmentWarnings, Converter={StaticResource BoolToVis}}"/>

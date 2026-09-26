@@ -301,6 +301,12 @@ public static partial class ComfyWorkflowImporter
             project.Continuations.Add(segment);
         }
 
+        // Pinned continuations normally have "Drop the pinned ..." nodes before their CreateVideo; without
+        // them the diagnostic that keeps the pinned frames was on.
+        project.KeepPinnedFrames = project.Continuations.Any(c => c.PreviousVideo.Handoff == PreviousClipHandoff.PinEnding)
+            && !nodes.Any(n => n!["type"]?.GetValue<string>() == "ImageFromBatch"
+                && n["title"]?.GetValue<string>()?.StartsWith("Drop the pinned", StringComparison.Ordinal) == true);
+
         // The joined-output pair is an extra SaveVideo titled "... - Joined"; without one, it was switched off.
         if (project.Continuations.Count > 0)
         {
