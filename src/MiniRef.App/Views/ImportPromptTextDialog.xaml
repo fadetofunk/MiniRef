@@ -10,9 +10,13 @@
             <Button Content="Import" Padding="14,5" Margin="8,0,0,0"
                     Background="#3B6EA5" Foreground="White" FontWeight="Bold" Click="Import_Click"/>
         </StackPanel>
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <TextBlock Text="Project name" FontWeight="Bold" Margin="0,0,0,4"/>
+            <TextBox x:Name="ProjectNameTextBox" Text="Imported Prompt" SpellCheck.IsEnabled="False"/>
+        </StackPanel>
         <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                   Text="Paste a full six-section MiniMax H3 prompt (subject_definitions, summary, retention_analysis, detailed_description, overall_soundscape, non_diegetic_music). Headers may be written on their own line or as &quot;name: ...&quot;. A subject is created for every &lt;Subject N&gt;, with an empty slot for each &lt;Picture N&gt;/&lt;Audio N&gt; it names; spoken &lt;d&gt; lines become structured dialogue. Opens as a new project."/>
+                   Text="Paste a full six-section MiniMax H3 prompt (subject_definitions, summary, retention_analysis, detailed_description, overall_soundscape, non_diegetic_music). Headers may be written on their own line or as &quot;name: ...&quot;. A subject is created for every &lt;Subject N&gt;, with an empty slot for each &lt;Picture N&gt;/&lt;Audio N&gt; it names; spoken &lt;d&gt; lines become structured dialogue. If a project with this name is already open you'll be asked whether to replace it."/>
         <TextBox x:Name="PromptTextBox" AcceptsReturn="True" AcceptsTab="False" TextWrapping="Wrap"
                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                  FontFamily="Consolas" SpellCheck.IsEnabled="False"/>
