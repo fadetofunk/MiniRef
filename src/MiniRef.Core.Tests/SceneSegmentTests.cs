@@ -152,6 +152,18 @@ public class SceneSegmentTests
     }
 
     [Fact]
+    public void ASegmentSavedBeforeTheTailSettingExisted_LoadsWithTheThreeSecondDefault_NotWholeClip()
+    {
+        const string old = """
+            { "Continuations": [ { "Summary": "Old segment", "PreviousVideo": { "FromPreviousSegment": true, "AudioUse": "Reference" } } ] }
+            """;
+
+        var project = JsonSerializer.Deserialize<SceneProject>(old, ProjectStore.Options)!;
+
+        Assert.Equal(3.0, project.Continuations[0].PreviousVideo.UseLastSeconds);
+    }
+
+    [Fact]
     public void Continuations_SurviveASaveAndReload_IncludingThePreviousVideoSettings()
     {
         var project = TwoSegmentProject();

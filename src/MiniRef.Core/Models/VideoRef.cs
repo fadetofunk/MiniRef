@@ -32,7 +32,9 @@ public partial class VideoRef : ObservableObject
     /// <summary>For a <see cref="FromPreviousSegment"/> video only: feed the reference node just this
     /// many seconds from the END of the previous clip (0 = all of it). The ending motion and audio tail
     /// are what a continuation needs, and every reference frame is extra tokens on every sampling step,
-    /// so a short tail is far cheaper than the whole clip. Snapped down to a valid clip length (17k + 5
-    /// frames) on export, and never longer than the new clip itself.</summary>
-    [ObservableProperty] private double useLastSeconds;
+    /// so a short tail is far cheaper than the whole clip. Snapped to a valid clip length (17k + 5
+    /// frames) on export, and never longer than the new clip itself. Defaults to 3 -- also what a saved
+    /// segment from before this setting existed loads as, rather than silently meaning "the whole clip".
+    /// Ignored for ordinary file videos.</summary>
+    [ObservableProperty] private double useLastSeconds = 3.0;
 }
