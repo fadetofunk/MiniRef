@@ -321,6 +321,11 @@ public static partial class ComfyWorkflowImporter
             project.SaveJoinedVideo = nodes.Any(n =>
                 n!["type"]?.GetValue<string>() == "SaveVideo"
                 && n["title"]?.GetValue<string>()?.EndsWith(ComfyWorkflowExporter.JoinedTitleMarker) == true);
+
+            // Clips saved on their own are SaveVideos titled "... - Segment N"; a joined-only export has none.
+            project.SaveIndividualClips = !project.SaveJoinedVideo || nodes.Any(n =>
+                n!["type"]?.GetValue<string>() == "SaveVideo"
+                && SegmentTitleRegex.IsMatch(n["title"]?.GetValue<string>() ?? ""));
         }
     }
 

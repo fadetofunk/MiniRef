@@ -44,6 +44,13 @@ public partial class SceneProject : ObservableObject
     /// and audio -- into one extra video, saved alongside the individual clips. Ignored for a single clip.</summary>
     [ObservableProperty] private bool saveJoinedVideo = true;
 
+    /// <summary>With a joined video, also save each clip on its own (default). Turn it off to save only the
+    /// joined video: ComfyUI's Assets tab previews a job by its FIRST saved output to finish, which is clip
+    /// 1, not the joined video that finishes last -- so with every clip saved, a browser-only user sees clip 1
+    /// and has to dig for the joined file. Ignored unless <see cref="SaveJoinedVideo"/> is on (something
+    /// must still be saved).</summary>
+    [ObservableProperty] private bool saveIndividualClips = true;
+
     /// <summary>A diagnostic for pinned-ending continuations: leave the pinned frames and sound at the
     /// start of each continuation's saved file instead of dropping them. Playing that opening against the
     /// previous clip's ending shows whether the model actually held the pinned frames -- which is otherwise

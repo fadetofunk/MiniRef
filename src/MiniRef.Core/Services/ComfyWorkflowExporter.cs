@@ -357,6 +357,7 @@ public static class ComfyWorkflowExporter
         var previousAudioDecode = audioDecodeOriginal;
         var plans = SegmentPlanner.Plan(project);
         var createIds = new List<int> { createVideoOriginal };   // each segment's CreateVideo, in playback order
+        var clipSaveIds = new List<int> { saveOriginal };        // each segment's own SaveVideo
 
         JsonObject AddNode(JsonObject node)
         {
@@ -579,6 +580,7 @@ public static class ComfyWorkflowExporter
                 RetitleAndPrefix(clones[idMap[saveOriginal]], k + 1, "Save Video", ChainOutputPrefix(project, SegmentLetter(k)));
 
             createIds.Add(createVideoOriginal == 0 ? 0 : idMap[createVideoOriginal]);
+            clipSaveIds.Add(saveOriginal == 0 ? 0 : idMap[saveOriginal]);
             previousDecode = idMap[decodeOriginal];
             previousAudioDecode = audioDecodeOriginal == 0 ? 0 : idMap[audioDecodeOriginal];
         }
@@ -627,7 +629,33 @@ public static class ComfyWorkflowExporter
             var joinedSave = AddNode(CloneUnlinked(byId[saveOriginal], ids.TakeNodeId(), $"Save Video{JoinedTitleMarker}", joinX + 800, joinY));
             joinedSave["widgets_values"]!.AsArray()[0] = ChainOutputPrefix(project, "joined");
             Connect(ToInt(joinedCreate["id"]), 0, joinedSave, "video", "VIDEO");
+
+            // Save only the joined video: drop each clip's own SaveVideo (its CreateVideo then feeds
+            // nothing and simply isn't run). The joined SaveVideo becomes the job's only saved output.
+            if (!project.SaveIndividualClips)
+            {
+                foreach (var clipSaveId in clipSaveIds.Where(id => id != 0))
+                    RemoveNode(nodes, links, byId, clipSaveId);
+            }
         }
+    }
+
+    /// <summary>Deletes a node together with every link into or out of it.</summary>
+    private static void RemoveNode(JsonArray nodes, JsonArray links, Dictionary<int, JsonObject> byId, int nodeId)
+    {
+        var node = byId[nodeId];
+        foreach (var input in node["inputs"]?.AsArray() ?? [])
+        {
+            if (input!["link"] is { } inLink) RemoveLink(byId, links, ToInt(inLink));
+        }
+        foreach (var output in node["outputs"]?.AsArray() ?? [])
+        {
+            foreach (var outLink in (output!["links"]?.AsArray() ?? []).ToList())
+                RemoveLink(byId, links, ToInt(outLink));
+        }
+
+        nodes.Remove(node);
+        byId.Remove(nodeId);
     }
 
     /// <summary>A copy of a template node with fresh id, title and position and every link cleared, ready
