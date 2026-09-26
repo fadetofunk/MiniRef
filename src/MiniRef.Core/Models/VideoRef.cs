@@ -24,4 +24,8 @@ public partial class VideoRef : ObservableObject
     /// ref_video_audios input, and how the prompt describes it. When not None the video also
     /// takes an &lt;Audio N&gt; number (after every subject audio) for that soundtrack.</summary>
     [ObservableProperty] private VideoAudioUse audioUse = VideoAudioUse.None;
+
+    /// <summary>True for a continuation segment's &lt;Video 1&gt;: the previous segment's output,
+    /// fed in-graph (decoded frames + audio) rather than loaded from <see cref="FilePath"/>.</summary>
+    [ObservableProperty] private bool fromPreviousSegment;
 }

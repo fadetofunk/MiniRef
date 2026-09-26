@@ -6,6 +6,11 @@ namespace MiniRef.Core.Services;
 /// <summary>Turns a SceneProject into the final six-section MiniMax H3 reference prompt text.</summary>
 public static class PromptComposer
 {
+    /// <summary>Composes one segment (0-based) of a continuation chain -- the project's own prompt
+    /// for 0, otherwise the prompt for that continuation over the shared cast.</summary>
+    public static string ComposeSegment(SceneProject project, int segmentIndex) =>
+        Compose(project.ForSegment(segmentIndex));
+
     public static string Compose(SceneProject project)
     {
         var numbering = ReferenceNumberer.Compute(project);

@@ -136,23 +136,55 @@ public static partial class ReferenceNumberer
     /// only numbers that actually changed for a still-surviving Id get rewritten; a removed
     /// reference's own tag is left as dangling text for the user to notice and clean up, same as
     /// today, since there's no sensible number to rewrite it to.</summary>
-    public static void RewriteTagsAfterRenumbering(SceneProject project, ReferenceNumbering before, ReferenceNumbering after)
+    public static void RewriteTagsAfterRenumbering(SceneProject project, ReferenceNumbering before, ReferenceNumbering after) =>
+        RewriteTagsAfterRenumbering(project, [before], [after]);
+
+    /// <summary>Segment-aware form: <paramref name="before"/>/<paramref name="after"/> hold one
+    /// snapshot per segment (index 0 is the project's own, index i is <c>ForSegment(i)</c>), each
+    /// applied to only that segment's text. The cast is shared, so a deleted or reordered
+    /// subject/picture/audio shifts numbers in every segment's prompt -- but each segment has its
+    /// own &lt;Video&gt; and video-soundtrack &lt;Audio&gt; numbering, which is why the maps can't be
+    /// computed once and reused across segments.</summary>
+    public static void RewriteTagsAfterRenumbering(
+        SceneProject project, IReadOnlyList<ReferenceNumbering> before, IReadOnlyList<ReferenceNumbering> after)
     {
-        var subjectMap = BuildRenumberMap(before.SubjectNumbers, after.SubjectNumbers);
-        var pictureMap = BuildRenumberMap(before.PictureNumbers, after.PictureNumbers);
-        var audioMap = BuildRenumberMap(before.AudioNumbers, after.AudioNumbers);
-        var videoMap = BuildRenumberMap(before.VideoNumbers, after.VideoNumbers);
+        for (var i = 0; i < before.Count && i < after.Count; i++)
+        {
+            var subjectMap = BuildRenumberMap(before[i].SubjectNumbers, after[i].SubjectNumbers);
+            var pictureMap = BuildRenumberMap(before[i].PictureNumbers, after[i].PictureNumbers);
+            var audioMap = BuildRenumberMap(before[i].AudioNumbers, after[i].AudioNumbers);
+            var videoMap = BuildRenumberMap(before[i].VideoNumbers, after[i].VideoNumbers);
 
-        if (subjectMap.Count == 0 && pictureMap.Count == 0 && audioMap.Count == 0 && videoMap.Count == 0)
-            return;
+            if (subjectMap.Count == 0 && pictureMap.Count == 0 && audioMap.Count == 0 && videoMap.Count == 0)
+                continue;
 
-        foreach (var shot in project.Shots)
-            shot.Text = RewriteTags(shot.Text, subjectMap, pictureMap, audioMap, videoMap);
+            if (i == 0)
+            {
+                foreach (var shot in project.Shots)
+                    shot.Text = RewriteTags(shot.Text, subjectMap, pictureMap, audioMap, videoMap);
 
-        project.Summary = RewriteTags(project.Summary, subjectMap, pictureMap, audioMap, videoMap);
-        project.OverallSoundscape = RewriteTags(project.OverallSoundscape, subjectMap, pictureMap, audioMap, videoMap);
-        project.NonDiegeticMusic = RewriteTags(project.NonDiegeticMusic, subjectMap, pictureMap, audioMap, videoMap);
+                project.Summary = RewriteTags(project.Summary, subjectMap, pictureMap, audioMap, videoMap);
+                project.OverallSoundscape = RewriteTags(project.OverallSoundscape, subjectMap, pictureMap, audioMap, videoMap);
+                project.NonDiegeticMusic = RewriteTags(project.NonDiegeticMusic, subjectMap, pictureMap, audioMap, videoMap);
+            }
+            else if (i - 1 < project.Continuations.Count)
+            {
+                var segment = project.Continuations[i - 1];
+                foreach (var shot in segment.Shots)
+                    shot.Text = RewriteTags(shot.Text, subjectMap, pictureMap, audioMap, videoMap);
+
+                segment.Summary = RewriteTags(segment.Summary, subjectMap, pictureMap, audioMap, videoMap);
+                segment.OverallSoundscape = RewriteTags(segment.OverallSoundscape, subjectMap, pictureMap, audioMap, videoMap);
+                segment.NonDiegeticMusic = RewriteTags(segment.NonDiegeticMusic, subjectMap, pictureMap, audioMap, videoMap);
+            }
+        }
     }
+
+    /// <summary>Snapshots the numbering of every segment (the project's own, then each
+    /// continuation's view) -- the input <see cref="RewriteTagsAfterRenumbering(SceneProject, IReadOnlyList{ReferenceNumbering}, IReadOnlyList{ReferenceNumbering})"/>
+    /// wants, taken immediately before and after a list mutation.</summary>
+    public static IReadOnlyList<ReferenceNumbering> ComputeAllSegments(SceneProject project) =>
+        Enumerable.Range(0, project.SegmentCount).Select(i => Compute(project.ForSegment(i))).ToList();
 
     /// <summary>Old number -> new number, for every Id present in both snapshots whose number
     /// actually changed. An Id missing from <paramref name="after"/> (it was just removed) or

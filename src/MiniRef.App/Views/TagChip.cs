@@ -35,7 +35,8 @@ public static class TagChipBuilder
             foreach (var v in sourceVideos)
             {
                 var n = videoNumbers[v.Id];
-                var label = string.IsNullOrWhiteSpace(v.Description) ? $"Video {n}" : v.Description;
+                var label = v.FromPreviousSegment ? "Previous segment"
+                    : string.IsNullOrWhiteSpace(v.Description) ? $"Video {n}" : v.Description;
                 chips.Add(new TagChip($"+ {label}", ReferenceNumberer.VideoTag(n)));
 
                 if (videoAudioNumbers.TryGetValue(v.Id, out var audioNumber))

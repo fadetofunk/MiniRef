@@ -341,7 +341,7 @@ public partial class ShotCard : UserControl
     /// they're about to become the next new speaker.</summary>
     private int SpeakerNumberFor(Guid speakerSubjectId)
     {
-        var shots = MainViewModel?.Project.Shots;
+        var shots = MainViewModel?.CurrentShots;
         if (shots is null) return 0;
 
         var speakerNumbers = ReferenceNumberer.NumberSpeakers(shots);
