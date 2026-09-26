@@ -6,6 +6,11 @@ namespace MiniRef.Core.Services;
 /// <summary>Turns a SceneProject into the final six-section MiniMax H3 reference prompt text.</summary>
 public static class PromptComposer
 {
+    /// <summary>Composes one segment (0-based) of a continuation chain -- the project's own prompt
+    /// for 0, otherwise the prompt for that continuation over the shared cast.</summary>
+    public static string ComposeSegment(SceneProject project, int segmentIndex) =>
+        Compose(project.ForSegment(segmentIndex));
+
     public static string Compose(SceneProject project)
     {
         var numbering = ReferenceNumberer.Compute(project);
@@ -107,6 +112,18 @@ public static class PromptComposer
                 ? "the source video for the target video edit."
                 : NormalizeSentence(video.Description);
             sentences.Add($"{ReferenceNumberer.VideoTag(n)} is {description}");
+
+            // The video's own soundtrack (the reference node's paired ref_video_audios input) gets
+            // its own <Audio N>. "Reuse" is the guide's canonical phrasing; "Reference" is for a
+            // continuation whose new audio only picks up the original track's audible character.
+            if (video.AudioUse != VideoAudioUse.None)
+            {
+                var audioTag = ReferenceNumberer.AudioTag(numbering.AudioNumber(video.Id));
+                var videoTag = ReferenceNumberer.VideoTag(n);
+                sentences.Add(video.AudioUse == VideoAudioUse.Reuse
+                    ? $"{audioTag} is the synchronized audio track of {videoTag} and is reused in the target video."
+                    : $"{audioTag} is the synchronized audio track of {videoTag}; the target video's audio continues its audible characteristics.");
+            }
         }
 
         return string.Join(" ", sentences);

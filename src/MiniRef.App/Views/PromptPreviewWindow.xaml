@@ -6,6 +6,8 @@
         Background="{DynamicResource ApplicationBackgroundBrush}" Foreground="{DynamicResource TextFillColorPrimaryBrush}">
     <DockPanel Margin="10">
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <ComboBox x:Name="SegmentCombo" Visibility="Collapsed" MinWidth="110" Margin="0,0,8,0"
+                      SelectionChanged="SegmentCombo_SelectionChanged"/>
             <Button Content="Refresh" Padding="10,4" Click="Refresh_Click"/>
             <Button Content="Copy to Clipboard" Padding="10,4" Margin="8,0,0,0" Click="Copy_Click"/>
             <TextBlock x:Name="StatusText" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"/>

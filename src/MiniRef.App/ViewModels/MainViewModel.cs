@@ -61,43 +61,56 @@ public partial class MainViewModel : ObservableObject
 
     public bool TaskKeyframeCompletion
     {
-        get => Project.TaskTypes.HasFlag(TaskType.KeyframeCompletion);
+        get => EffectiveTaskTypes.HasFlag(TaskType.KeyframeCompletion);
         set => SetTaskFlag(TaskType.KeyframeCompletion, value);
     }
 
     public bool TaskReferenceGeneration
     {
-        get => Project.TaskTypes.HasFlag(TaskType.ReferenceGeneration);
+        get => EffectiveTaskTypes.HasFlag(TaskType.ReferenceGeneration);
         set => SetTaskFlag(TaskType.ReferenceGeneration, value);
     }
 
     public bool TaskVideoEditing
     {
-        get => Project.TaskTypes.HasFlag(TaskType.VideoEditing);
+        get => EffectiveTaskTypes.HasFlag(TaskType.VideoEditing);
         set => SetTaskFlag(TaskType.VideoEditing, value);
     }
 
     public bool TaskVideoContinuation
     {
-        get => Project.TaskTypes.HasFlag(TaskType.VideoContinuation);
+        get => EffectiveTaskTypes.HasFlag(TaskType.VideoContinuation);
         set => SetTaskFlag(TaskType.VideoContinuation, value);
     }
 
     public bool TaskAudioReuse
     {
-        get => Project.TaskTypes.HasFlag(TaskType.AudioReuse);
+        get => EffectiveTaskTypes.HasFlag(TaskType.AudioReuse);
         set => SetTaskFlag(TaskType.AudioReuse, value);
     }
 
     public bool TaskAudioReference
     {
-        get => Project.TaskTypes.HasFlag(TaskType.AudioReference);
+        get => EffectiveTaskTypes.HasFlag(TaskType.AudioReference);
         set => SetTaskFlag(TaskType.AudioReference, value);
     }
 
+    /// <summary>The task types in force for the segment being edited. For a continuation segment
+    /// that includes the ones added automatically (video continuation, and audio reuse/reference
+    /// from the previous clip's audio setting), which is why those boxes are shown ticked but locked.</summary>
+    private TaskType EffectiveTaskTypes => Project.ForSegment(SafeSegmentIndex).TaskTypes;
+
     private void SetTaskFlag(TaskType flag, bool value)
     {
-        Project.TaskTypes = value ? Project.TaskTypes | flag : Project.TaskTypes & ~flag;
+        if (SafeSegmentIndex == 0)
+        {
+            Project.TaskTypes = value ? Project.TaskTypes | flag : Project.TaskTypes & ~flag;
+        }
+        else
+        {
+            var segment = Project.Continuations[SafeSegmentIndex - 1];
+            segment.TaskTypes = value ? segment.TaskTypes | flag : segment.TaskTypes & ~flag;
+        }
         OnPropertyChanged(nameof(TaskKeyframeCompletion));
         OnPropertyChanged(nameof(TaskReferenceGeneration));
         OnPropertyChanged(nameof(TaskVideoEditing));
@@ -106,8 +119,140 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(TaskAudioReference));
     }
 
+    // ---- Continuation segments ----
+    // The project's own shots/summary/duration are segment 0; Project.Continuations are 1..N. The
+    // editing panes bind to the "Current*" members below so they follow whichever segment is
+    // selected, while the cast, style, and resolution stay shared and are still bound via Project.
+
+    [ObservableProperty] private int currentSegmentIndex;
+
+    /// <summary>"Segment 1".."Segment N" for the selector. Rebuilt in place when a segment is added or
+    /// removed or the active project changes; <see cref="_rebuildingSegmentLabels"/> stops the
+    /// ListBox's transient "nothing selected" during the rebuild from clobbering the selection.</summary>
+    public ObservableCollection<string> SegmentLabels { get; } = [];
+    private bool _rebuildingSegmentLabels;
+
+    [ObservableProperty] private string segmentWarnings = "";
+
+    public bool HasSegmentWarnings => SegmentWarnings.Length > 0;
+    public bool HasMultipleSegments => Project.SegmentCount > 1;
+    public bool IsContinuationSegment => SafeSegmentIndex > 0;
+    public bool IsNotContinuationSegment => SafeSegmentIndex == 0;
+
+    private int SafeSegmentIndex => Math.Clamp(CurrentSegmentIndex, 0, Project.Continuations.Count);
+
+    /// <summary>The object whose Summary/OverallSoundscape/NonDiegeticMusic/DurationSeconds the scene
+    /// fields bind to: the SceneProject itself for segment 1, otherwise that continuation's
+    /// SceneSegment. Both expose the same property names, so the XAML doesn't care which it is.</summary>
+    public object CurrentSegment => SafeSegmentIndex == 0 ? Project : Project.Continuations[SafeSegmentIndex - 1];
+
+    public ObservableCollection<Shot> CurrentShots =>
+        SafeSegmentIndex == 0 ? Project.Shots : Project.Continuations[SafeSegmentIndex - 1].Shots;
+
+    /// <summary>Segment 1's source-video list, or for a continuation the single previous-clip video.</summary>
+    public ObservableCollection<VideoRef> CurrentVideos =>
+        SafeSegmentIndex == 0 ? Project.SourceVideos : Project.Continuations[SafeSegmentIndex - 1].VideoList;
+
+    public string CurrentSummary
+    {
+        get => SafeSegmentIndex == 0 ? Project.Summary : Project.Continuations[SafeSegmentIndex - 1].Summary;
+        set
+        {
+            if (SafeSegmentIndex == 0) Project.Summary = value;
+            else Project.Continuations[SafeSegmentIndex - 1].Summary = value;
+        }
+    }
+
+    partial void OnCurrentSegmentIndexChanged(int value)
+    {
+        if (_rebuildingSegmentLabels) return;
+        RaiseSegmentChanged();
+    }
+
+    private void RaiseSegmentChanged()
+    {
+        OnPropertyChanged(nameof(CurrentSegment));
+        OnPropertyChanged(nameof(CurrentShots));
+        OnPropertyChanged(nameof(CurrentVideos));
+        OnPropertyChanged(nameof(CurrentSummary));
+        OnPropertyChanged(nameof(IsContinuationSegment));
+        OnPropertyChanged(nameof(IsNotContinuationSegment));
+        OnPropertyChanged(nameof(HasMultipleSegments));
+        OnPropertyChanged(nameof(TaskKeyframeCompletion));
+        OnPropertyChanged(nameof(TaskReferenceGeneration));
+        OnPropertyChanged(nameof(TaskVideoEditing));
+        OnPropertyChanged(nameof(TaskVideoContinuation));
+        OnPropertyChanged(nameof(TaskAudioReuse));
+        OnPropertyChanged(nameof(TaskAudioReference));
+        RefreshSegmentWarnings();
+    }
+
+    private void RebuildSegmentLabels()
+    {
+        var keep = SafeSegmentIndex;
+        _rebuildingSegmentLabels = true;
+        try
+        {
+            SegmentLabels.Clear();
+            for (var i = 0; i < Project.SegmentCount; i++)
+                SegmentLabels.Add($"Segment {i + 1}");
+            CurrentSegmentIndex = keep;
+        }
+        finally
+        {
+            _rebuildingSegmentLabels = false;
+        }
+
+        OnPropertyChanged(nameof(CurrentSegmentIndex));   // re-select in the ListBox after the rebuild
+        RaiseSegmentChanged();
+    }
+
+    /// <summary>Re-checks the selected segment's reference inputs against ref2va's per-generation
+    /// caps. Called whenever the segment changes or the shared cast does (MainWindow's derived-state
+    /// refresh), since adding a picture can push a later segment over.</summary>
+    public void RefreshSegmentWarnings()
+    {
+        SegmentWarnings = string.Join("\n",
+            ReferenceLimits.Check(Project.ForSegment(SafeSegmentIndex)).Concat(ReferenceLimits.CheckLength(Project, SafeSegmentIndex)));
+        OnPropertyChanged(nameof(HasSegmentWarnings));
+    }
+
+    /// <summary>Rolls a fresh base seed (under 2^53, so it survives the workflow's JSON numbers).</summary>
+    [RelayCommand]
+    private void NewSeed() => Project.Seed = Random.Shared.NextInt64(1, 9_000_000_000_000_000);
+
+    [RelayCommand]
+    private void AddSegment()
+    {
+        // Start at the previous clip's length -- a chain is usually equal-length clips.
+        var previousSeconds = Project.Continuations.Count == 0 ? Project.DurationSeconds : Project.Continuations[^1].DurationSeconds;
+        Project.Continuations.Add(new SceneSegment { DurationSeconds = previousSeconds });
+        RebuildSegmentLabels();
+        CurrentSegmentIndex = Project.Continuations.Count;   // jump to the new one
+    }
+
+    [RelayCommand]
+    private void RemoveCurrentSegment()
+    {
+        var index = SafeSegmentIndex;
+        if (index == 0) return;
+
+        var segment = Project.Continuations[index - 1];
+        var hasContent = segment.Shots.Count > 0 || !string.IsNullOrWhiteSpace(segment.Summary);
+        if (hasContent && MessageBox.Show(
+                $"Remove Segment {index + 1} and its {segment.Shots.Count} shot(s)? This can't be undone.",
+                "Remove Segment", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
+
+        Project.Continuations.RemoveAt(index - 1);
+        CurrentSegmentIndex = index - 1;
+        RebuildSegmentLabels();
+    }
+
     partial void OnActiveTabChanged(ProjectTab? value)
     {
+        CurrentSegmentIndex = 0;
+        RebuildSegmentLabels();
         OnPropertyChanged(nameof(Project));
         OnPropertyChanged(nameof(CurrentFilePath));
         OnPropertyChanged(nameof(TaskKeyframeCompletion));
@@ -260,9 +405,9 @@ public partial class MainViewModel : ObservableObject
     /// elsewhere pointing at a picture that no longer exists at that number.</summary>
     private void MutateAndRenumber(Action mutate)
     {
-        var before = ReferenceNumberer.Compute(Project);
+        var before = ReferenceNumberer.ComputeAllSegments(Project);
         mutate();
-        var after = ReferenceNumberer.Compute(Project);
+        var after = ReferenceNumberer.ComputeAllSegments(Project);
         ReferenceNumberer.RewriteTagsAfterRenumbering(Project, before, after);
     }
 
@@ -292,22 +437,29 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void AddShot() => Project.Shots.Add(new Shot());
+    private void AddShot() => CurrentShots.Add(new Shot());
 
     [RelayCommand]
-    private void RemoveShot(Shot shot) => Project.Shots.Remove(shot);
+    private void RemoveShot(Shot shot) => CurrentShots.Remove(shot);
 
     [RelayCommand]
-    private void MoveShotUp(Shot shot) => Move(Project.Shots, shot, -1);
+    private void MoveShotUp(Shot shot) => Move(CurrentShots, shot, -1);
 
     [RelayCommand]
-    private void MoveShotDown(Shot shot) => Move(Project.Shots, shot, 1);
+    private void MoveShotDown(Shot shot) => Move(CurrentShots, shot, 1);
 
     [RelayCommand]
-    private void AddSourceVideo() => Project.SourceVideos.Add(new VideoRef());
+    private void AddSourceVideo()
+    {
+        if (SafeSegmentIndex == 0) Project.SourceVideos.Add(new VideoRef());
+    }
 
     [RelayCommand]
-    private void RemoveSourceVideo(VideoRef video) => MutateAndRenumber(() => Project.SourceVideos.Remove(video));
+    private void RemoveSourceVideo(VideoRef video)
+    {
+        if (video.FromPreviousSegment) return;   // a continuation's <Video 1> is the previous clip; it can't be removed
+        MutateAndRenumber(() => Project.SourceVideos.Remove(video));
+    }
 
     [RelayCommand]
     private void NewProject()
@@ -486,6 +638,18 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // Each segment is its own generation carrying the whole shared cast, so check every one
+        // against ref2va's input caps -- anything over is silently left out of the export.
+        var limitProblems = Enumerable.Range(0, Project.SegmentCount)
+            .SelectMany(i => ReferenceLimits.Check(Project.ForSegment(i))
+                .Select(problem => Project.SegmentCount > 1 ? $"Segment {i + 1}: {problem}" : problem))
+            .Concat(ReferenceLimits.CheckLengths(Project))
+            .ToList();
+        if (limitProblems.Count > 0 && MessageBox.Show(
+                string.Join("\n", limitProblems) + "\n\nExport anyway?",
+                "Export ComfyUI Workflow", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
+
         var root = Settings.ComfyUiRootFolder;
         var hasRoot = !string.IsNullOrWhiteSpace(root) && Directory.Exists(root);
 
@@ -519,8 +683,16 @@ public partial class MainViewModel : ObservableObject
 
         File.WriteAllText(outputPath, workflowJson);
 
+        var chainNote = Project.SegmentCount > 1
+            ? $"This is a {Project.SegmentCount}-segment chain: one workflow that renders {Project.SegmentCount} clips back to back " +
+              $"(saved as <date>_<time>_<project>_a to _{(char)('a' + Math.Min(Project.SegmentCount - 1, 25))}" +
+              (Project.SaveJoinedVideo ? ", plus _joined with them all in one video" : "") +
+              "). Each clip after the first continues from the previous clip inside the graph, and the pictures/voices are " +
+              "loaded once and shared -- load it in ComfyUI and queue it once.\n\n"
+            : "";
+
         MessageBox.Show(
-            $"Workflow exported to:\n{outputPath}\n\n" +
+            $"Workflow exported to:\n{outputPath}\n\n" + chainNote +
             "LoadImage/LoadAudio/VHS_LoadVideoPath nodes are titled with their <Picture N>/<Audio N>/<Video N> " +
             "tag and character name. Pictures/audio with a file chosen were copied into ComfyUI's input folder " +
             "automatically; anything without a file picked still shows a placeholder to fill in by hand.\n\n" +

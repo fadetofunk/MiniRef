@@ -8,6 +8,10 @@ public static class EnumSources
 {
     public static SubjectClassification[] Classifications { get; } = Enum.GetValues<SubjectClassification>();
 
+    public static VideoAudioUse[] VideoAudioUseChoices { get; } = Enum.GetValues<VideoAudioUse>();
+
+    public static PreviousClipHandoff[] PreviousClipHandoffChoices { get; } = Enum.GetValues<PreviousClipHandoff>();
+
     public static VisualRetentionType?[] VisualRetentionChoices { get; } =
         [null, .. Enum.GetValues<VisualRetentionType>().Cast<VisualRetentionType?>()];
 

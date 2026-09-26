@@ -28,8 +28,14 @@ public static class ShotRichTextBuilder
         return brush;
     }
 
+    /// <summary>Windows clipboards and text boxes hand back "\r\n"; a shot's text only ever uses '\n'
+    /// (see ShotTextTokenizer and the LineBreak mapping), so a stray '\r' would ride along inside a Run
+    /// as an invisible extra character.</summary>
+    private static string NormalizeNewlines(string text) => text.Replace("\r\n", "\n").Replace('\r', '\n');
+
     public static FlowDocument BuildDocument(string text, IReadOnlyList<Subject> subjects, IReadOnlyList<VideoRef> videos)
     {
+        text = NormalizeNewlines(text);
         var paragraph = new Paragraph { Margin = new Thickness(0) };
 
         foreach (var token in ShotTextTokenizer.Tokenize(text))
@@ -50,7 +56,7 @@ public static class ShotRichTextBuilder
     public static TextPointer InsertAt(TextPointer at, string text, IReadOnlyList<Subject> subjects, IReadOnlyList<VideoRef> videos)
     {
         var pointer = at;
-        foreach (var token in ShotTextTokenizer.Tokenize(text))
+        foreach (var token in ShotTextTokenizer.Tokenize(NormalizeNewlines(text)))
         {
             pointer = token.Kind is null
                 ? InsertPlainText(pointer, token.Text)
@@ -87,44 +93,55 @@ public static class ShotRichTextBuilder
     /// e.g. the text a Ctrl+C is about to put on the clipboard -- reads each selected chip's raw
     /// tag rather than letting WPF's default copy reduce it to an opaque placeholder character,
     /// so copying a chip from one shot and pasting it into another (via InsertAt) reconstructs the
-    /// same chip instead of losing it.</summary>
+    /// same chip instead of losing it.
+    ///
+    /// Walks the selection's own content (text runs, chips, line breaks, paragraph boundaries) from
+    /// start to end rather than assuming both ends sit inside one Paragraph: Ctrl+A puts the
+    /// selection's ends OUTSIDE the paragraph, and the old paragraph-only path fell back to
+    /// TextRange.Text there -- which silently drops every chip, leaving blanks where the tags were.</summary>
     public static string SerializeRange(TextRange range)
     {
         if (range.IsEmpty) return "";
 
-        // Shots keep everything in one Paragraph (see the Enter-key handling in ShotCard), so a
-        // selection spanning more than one -- only possible if pasted plain text split it, per
-        // Serialize's own comment above -- falls back to WPF's plain TextRange.Text rather than
-        // walking multiple paragraphs; a rare, already-degraded edge case either way.
-        if (range.Start.Paragraph is not { } paragraph || range.End.Paragraph != paragraph)
-            return range.Text;
-
         var sb = new StringBuilder();
-        foreach (var inline in paragraph.Inlines)
-        {
-            if (inline.ElementEnd.CompareTo(range.Start) <= 0) continue;
-            if (inline.ElementStart.CompareTo(range.End) >= 0) break;
+        var startedInsideParagraph = range.Start.Paragraph is not null;
+        var paragraphsStarted = 0;
 
-            switch (inline)
+        for (var pointer = range.Start; pointer is not null && pointer.CompareTo(range.End) < 0;
+             pointer = pointer.GetNextContextPosition(LogicalDirection.Forward))
+        {
+            switch (pointer.GetPointerContext(LogicalDirection.Forward))
             {
-                case Run run:
-                    var clipped = new TextRange(Max(run.ContentStart, range.Start), Min(run.ContentEnd, range.End));
-                    sb.Append(clipped.Text);
+                case TextPointerContext.Text:
+                    var run = pointer.GetTextInRun(LogicalDirection.Forward);
+                    var room = pointer.GetOffsetToPosition(range.End);   // stop at the selection's end, mid-run if need be
+                    sb.Append(room < run.Length ? run[..room] : run);
                     break;
-                case LineBreak:
-                    sb.Append('\n');
+
+                case TextPointerContext.EmbeddedElement:
+                    if (pointer.GetAdjacentElement(LogicalDirection.Forward) is Border { Tag: string rawTag })
+                        sb.Append(rawTag);
                     break;
-                case InlineUIContainer { Child: Border { Tag: string rawTag } }:
-                    sb.Append(rawTag);
+
+                case TextPointerContext.ElementStart:
+                    switch (pointer.GetAdjacentElement(LogicalDirection.Forward))
+                    {
+                        case LineBreak:
+                            sb.Append('\n');
+                            break;
+                        case Paragraph:
+                            // Paragraph breaks are '\n', same as Serialize -- but not before the first
+                            // paragraph of a selection that started in front of all of them.
+                            if (startedInsideParagraph || paragraphsStarted > 0) sb.Append('\n');
+                            paragraphsStarted++;
+                            break;
+                    }
                     break;
             }
         }
 
         return sb.ToString();
     }
-
-    private static TextPointer Max(TextPointer a, TextPointer b) => a.CompareTo(b) >= 0 ? a : b;
-    private static TextPointer Min(TextPointer a, TextPointer b) => a.CompareTo(b) <= 0 ? a : b;
 
     private static void AppendInlines(StringBuilder sb, IEnumerable<Inline> inlines)
     {

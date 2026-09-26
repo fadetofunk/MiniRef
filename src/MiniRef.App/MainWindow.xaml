@@ -164,18 +164,39 @@
 
             <!-- Shots -->
             <DockPanel Grid.Column="2" Margin="8">
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <Button DockPanel.Dock="Right" Content="+ Segment" Padding="8,2" Margin="6,0,0,0"
+                            Command="{Binding AddSegmentCommand}"
+                            ToolTip="Add another clip that continues from the end of the last one. The cast (pictures, voices) is shared -- set once, used by every segment. Exports as one ComfyUI workflow that generates the clips back to back."/>
+                    <Button DockPanel.Dock="Right" Content="Remove" Padding="8,2" Margin="6,0,0,0"
+                            Command="{Binding RemoveCurrentSegmentCommand}"
+                            Visibility="{Binding IsContinuationSegment, Converter={StaticResource BoolToVis}}"
+                            ToolTip="Remove the selected continuation segment"/>
+                    <ListBox ItemsSource="{Binding SegmentLabels}" SelectedIndex="{Binding CurrentSegmentIndex, Mode=TwoWay}"
+                             BorderThickness="0" Background="Transparent">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="10,3"/>
+                                <Setter Property="Margin" Value="0,0,4,0"/>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
+                </DockPanel>
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                     <TextBlock Text="Shots" FontWeight="Bold" FontSize="14"/>
                     <Button DockPanel.Dock="Right" Content="+ Add Shot" Padding="8,2" HorizontalAlignment="Right"
                             Command="{Binding AddShotCommand}"/>
                 </DockPanel>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding Project.Shots}" AlternationCount="1000000">
+                    <ItemsControl ItemsSource="{Binding CurrentShots}" AlternationCount="1000000">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type models:Shot}">
                                 <views:ShotCard AllSubjects="{Binding DataContext.Project.Subjects,
                                                  RelativeSource={RelativeSource AncestorType=Window}}"
-                                                 SourceVideos="{Binding DataContext.Project.SourceVideos,
+                                                 SourceVideos="{Binding DataContext.CurrentVideos,
                                                  RelativeSource={RelativeSource AncestorType=Window}}"
                                                  DisplayNumber="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter},
                                                  Path=(ItemsControl.AlternationIndex),
@@ -195,16 +216,39 @@
                     <CheckBox Content="keyframe completion" IsChecked="{Binding TaskKeyframeCompletion}" Margin="0,2"/>
                     <CheckBox Content="reference generation" IsChecked="{Binding TaskReferenceGeneration}" Margin="0,2"/>
                     <CheckBox Content="video editing" IsChecked="{Binding TaskVideoEditing}" Margin="0,2"/>
-                    <CheckBox Content="video continuation" IsChecked="{Binding TaskVideoContinuation}" Margin="0,2"/>
-                    <CheckBox Content="audio reuse" IsChecked="{Binding TaskAudioReuse}" Margin="0,2"/>
-                    <CheckBox Content="audio reference" IsChecked="{Binding TaskAudioReference}" Margin="0,2"/>
+                    <CheckBox Content="video continuation" IsChecked="{Binding TaskVideoContinuation}" Margin="0,2" IsEnabled="{Binding IsNotContinuationSegment}"/>
+                    <CheckBox Content="audio reuse" IsChecked="{Binding TaskAudioReuse}" Margin="0,2" IsEnabled="{Binding IsNotContinuationSegment}"/>
+                    <CheckBox Content="audio reference" IsChecked="{Binding TaskAudioReference}" Margin="0,2" IsEnabled="{Binding IsNotContinuationSegment}"/>
+
+                    <CheckBox Content="also save one joined video" Margin="0,8,0,0"
+                              IsChecked="{Binding Project.SaveJoinedVideo}"
+                              Visibility="{Binding HasMultipleSegments, Converter={StaticResource BoolToVis}}"
+                              ToolTip="Adds nodes that join every clip -- frames and audio -- into one extra video, saved next to the individual clips. Each pinned-ending clip contributes only its new material, so the pieces butt together."/>
+
+                    <CheckBox Content="keep pinned frames in each clip (to check the handoff)" Margin="0,4,0,0"
+                              IsChecked="{Binding Project.KeepPinnedFrames}"
+                              Visibility="{Binding HasMultipleSegments, Converter={StaticResource BoolToVis}}"
+                              ToolTip="Diagnostic. Normally the previous clip's pinned ending is cut from the start of each continuation's saved file. Turn this on to keep it, then compare the opening of that clip with the previous clip's ending: if they match, the pin held and any hard cut comes from the new content (usually the prompt); if not, the pin isn't holding. The joined video will repeat the pinned span while this is on."/>
+
+                    <TextBlock Text="{Binding SegmentWarnings}" TextWrapping="Wrap" FontSize="11" Margin="0,8,0,0"
+                               Foreground="{DynamicResource SystemFillColorCautionBrush}"
+                               Visibility="{Binding HasSegmentWarnings, Converter={StaticResource BoolToVis}}"/>
 
                     <TextBlock Text="Duration (seconds)" FontWeight="Bold" FontSize="14" Margin="0,16,0,6"/>
                     <DockPanel>
                         <TextBlock DockPanel.Dock="Right" Width="46" TextAlignment="Right" VerticalAlignment="Center"
-                                   Margin="6,0,0,0" Text="{Binding Project.DurationSeconds, StringFormat='{}{0:0.0}s'}"/>
+                                   Margin="6,0,0,0" Text="{Binding CurrentSegment.DurationSeconds, StringFormat='{}{0:0.0}s'}"/>
                         <Slider Minimum="1" Maximum="15" TickFrequency="0.5" IsSnapToTickEnabled="True"
-                                Value="{Binding Project.DurationSeconds, UpdateSourceTrigger=PropertyChanged}"/>
+                                Value="{Binding CurrentSegment.DurationSeconds, UpdateSourceTrigger=PropertyChanged}"/>
+                    </DockPanel>
+
+                    <TextBlock Text="Seed" FontWeight="Bold" FontSize="14" Margin="0,16,0,6"/>
+                    <CheckBox Content="fix the seed (for A/B tests)" IsChecked="{Binding Project.FixSeed}"
+                              ToolTip="Write fixed seeds into the exported workflow instead of randomizing each run, so re-queuing reproduces the same clips and ComfyUI can reuse everything upstream of an edit. Each segment gets its own seed: this one for segment 1, then +1, +2, ..."/>
+                    <DockPanel Margin="0,4,0,0" IsEnabled="{Binding Project.FixSeed}">
+                        <Button DockPanel.Dock="Right" Content="New" Padding="8,2" Margin="6,0,0,0" Command="{Binding NewSeedCommand}"
+                                ToolTip="Roll a fresh random seed"/>
+                        <TextBox Text="{Binding Project.Seed, UpdateSourceTrigger=LostFocus}" SpellCheck.IsEnabled="False"/>
                     </DockPanel>
 
                     <TextBlock Text="Aspect Ratio" FontWeight="Bold" FontSize="14" Margin="0,16,0,6"/>
@@ -249,12 +293,12 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <Grid>
-                        <TextBox x:Name="SummaryTextBox" Text="{Binding Project.Summary, UpdateSourceTrigger=PropertyChanged}"
+                        <TextBox x:Name="SummaryTextBox" Text="{Binding CurrentSegment.Summary, UpdateSourceTrigger=PropertyChanged}"
                                  AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" VerticalScrollBarVisibility="Auto">
                             <TextBox.Style>
                                 <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Project.Summary, Converter={StaticResource BlankStringToVisibility}}" Value="Visible">
+                                        <DataTrigger Binding="{Binding CurrentSegment.Summary, Converter={StaticResource BlankStringToVisibility}}" Value="Visible">
                                             <Setter Property="BorderBrush" Value="{DynamicResource SystemFillColorCautionBrush}"/>
                                             <Setter Property="BorderThickness" Value="2"/>
                                         </DataTrigger>
@@ -268,15 +312,15 @@
                         </TextBox>
                         <TextBlock Text="Task type + how references relate, e.g. &quot;Reference generation combining &lt;Subject 1&gt; and &lt;Subject 2&gt;'s setting.&quot;"
                                    Style="{StaticResource PlaceholderOverlayStyle}"
-                                   Visibility="{Binding Project.Summary, Converter={StaticResource BlankStringToVisibility}}"/>
+                                   Visibility="{Binding CurrentSegment.Summary, Converter={StaticResource BlankStringToVisibility}}"/>
                     </Grid>
                     <TextBlock Text="No summary text -- this section will be left out of the export entirely."
                                Foreground="{DynamicResource SystemFillColorCautionBrush}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"
-                               Visibility="{Binding Project.Summary, Converter={StaticResource BlankStringToVisibility}}"/>
+                               Visibility="{Binding CurrentSegment.Summary, Converter={StaticResource BlankStringToVisibility}}"/>
 
                     <TextBlock Text="Overall Soundscape" FontWeight="Bold" FontSize="14" Margin="0,16,0,6"/>
                     <Grid>
-                        <TextBox Text="{Binding Project.OverallSoundscape, UpdateSourceTrigger=PropertyChanged}"
+                        <TextBox Text="{Binding CurrentSegment.OverallSoundscape, UpdateSourceTrigger=PropertyChanged}"
                                  AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" VerticalScrollBarVisibility="Auto">
                             <TextBox.ToolTip>
                                 <TextBlock MaxWidth="360" TextWrapping="Wrap"
@@ -285,12 +329,12 @@
                         </TextBox>
                         <TextBlock Text="Ambient &amp; physical sounds (no dialogue), e.g. &quot;Steady rain taps the windows; low room ambience underneath.&quot;"
                                    Style="{StaticResource PlaceholderOverlayStyle}"
-                                   Visibility="{Binding Project.OverallSoundscape, Converter={StaticResource BlankStringToVisibility}}"/>
+                                   Visibility="{Binding CurrentSegment.OverallSoundscape, Converter={StaticResource BlankStringToVisibility}}"/>
                     </Grid>
 
                     <TextBlock Text="Non-Diegetic Music" FontWeight="Bold" FontSize="14" Margin="0,16,0,6"/>
                     <Grid>
-                        <TextBox Text="{Binding Project.NonDiegeticMusic, UpdateSourceTrigger=PropertyChanged}"
+                        <TextBox Text="{Binding CurrentSegment.NonDiegeticMusic, UpdateSourceTrigger=PropertyChanged}"
                                  AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" VerticalScrollBarVisibility="Auto">
                             <TextBox.ToolTip>
                                 <TextBlock MaxWidth="360" TextWrapping="Wrap"
@@ -299,17 +343,18 @@
                         </TextBox>
                         <TextBlock Text="Score the characters can't hear, e.g. &quot;Soft piano and strings swell gently.&quot;"
                                    Style="{StaticResource PlaceholderOverlayStyle}"
-                                   Visibility="{Binding Project.NonDiegeticMusic, Converter={StaticResource BlankStringToVisibility}}"/>
+                                   Visibility="{Binding CurrentSegment.NonDiegeticMusic, Converter={StaticResource BlankStringToVisibility}}"/>
                     </Grid>
 
                     <DockPanel Margin="0,16,0,6">
                         <TextBlock Text="Source Videos" FontWeight="Bold" FontSize="14"/>
                         <Button DockPanel.Dock="Right" Content="+ Add" Padding="8,2" HorizontalAlignment="Right"
-                                Command="{Binding AddSourceVideoCommand}"/>
+                                Command="{Binding AddSourceVideoCommand}"
+                                Visibility="{Binding IsNotContinuationSegment, Converter={StaticResource BoolToVis}}"/>
                     </DockPanel>
                     <TextBlock Text="(only needed for video editing / continuation task types)"
                                FontSize="10" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,0,0,4" TextWrapping="Wrap"/>
-                    <ItemsControl ItemsSource="{Binding Project.SourceVideos}" AlternationCount="1000000">
+                    <ItemsControl ItemsSource="{Binding CurrentVideos}" AlternationCount="1000000">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type models:VideoRef}">
                                 <Border Margin="0,2,0,0" Padding="4" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" CornerRadius="3">
@@ -323,7 +368,8 @@
                                             <Button DockPanel.Dock="Right" Content="✕" Width="20" Padding="0"
                                                     Command="{Binding DataContext.RemoveSourceVideoCommand,
                                                               RelativeSource={RelativeSource AncestorType=Window}}"
-                                                    CommandParameter="{Binding}"/>
+                                                    CommandParameter="{Binding}"
+                                                    Visibility="{Binding FromPreviousSegment, Converter={StaticResource InverseBoolToVisibility}}"/>
                                         </DockPanel>
                                         <Grid Margin="0,4,0,0">
                                             <TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}">
@@ -336,7 +382,31 @@
                                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="8,0,0,0" VerticalAlignment="Center"
                                                        Visibility="{Binding Description, Converter={StaticResource BlankStringToVisibility}}"/>
                                         </Grid>
-                                        <DockPanel Margin="0,4,0,0" LastChildFill="True">
+                                        <TextBlock Margin="0,4,0,0" FontSize="10" TextWrapping="Wrap" FontStyle="Italic"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                   Visibility="{Binding FromPreviousSegment, Converter={StaticResource BoolToVis}}"
+                                                   Text="The previous segment's finished clip -- fed straight from it inside the exported workflow, so there's no file to pick."/>
+                                        <ComboBox Margin="0,4,0,0"
+                                                  ItemsSource="{x:Static local:EnumSources.PreviousClipHandoffChoices}"
+                                                  SelectedItem="{Binding Handoff}"
+                                                  Visibility="{Binding FromPreviousSegment, Converter={StaticResource BoolToVis}}"
+                                                  ToolTip="Pin its ending (recommended): the previous clip's last frames and sound are locked onto the first frames of this clip (MiniMaxH3AddGuide), so motion and audio carry across by construction. The pinned part is dropped from this clip's saved file, so the two files butt together. Reference video: hands it over as a &lt;Video 1&gt; the model may imitate -- and, if long, copy.">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <DockPanel Margin="0,4,0,0"
+                                                   Visibility="{Binding FromPreviousSegment, Converter={StaticResource BoolToVis}}"
+                                                   ToolTip="How much of the previous clip is handed to this segment, counted back from its end. The ending motion and sound are what a continuation needs, and every reference frame costs extra memory and time on every sampling step -- a short tail is far cheaper than the whole clip. Snapped to a valid clip length, and never longer than this segment itself. 0 uses the whole previous clip.">
+                                            <TextBlock Text="Use only the last" VerticalAlignment="Center" FontSize="11"/>
+                                            <TextBox Width="48" Margin="6,0,6,0" Text="{Binding UseLastSeconds, StringFormat=0.##}"/>
+                                            <TextBlock Text="s  (pin / reference; 0 = whole clip)" VerticalAlignment="Center" FontSize="11"
+                                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                                        </DockPanel>
+                                        <DockPanel Margin="0,4,0,0" LastChildFill="True"
+                                                   Visibility="{Binding FromPreviousSegment, Converter={StaticResource InverseBoolToVisibility}}">
                                             <Button DockPanel.Dock="Left" Content="Browse..." Padding="6,2"
                                                     Command="{Binding DataContext.BrowseVideoFileCommand,
                                                               RelativeSource={RelativeSource AncestorType=Window}}"
@@ -346,6 +416,16 @@
                                                        ToolTip="{Binding FilePath}"
                                                        Text="{Binding FilePath, Converter={StaticResource PathToFileName}}"/>
                                         </DockPanel>
+                                        <TextBlock Text="Its audio" FontSize="10" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,6,0,2"
+                                                   ToolTip="Feeds this video's own soundtrack to the reference node's paired ref_video_audios input and adds an &lt;Audio N&gt; for it. Reuse keeps the original audio audible; Continue (reference) lets new audio pick up its audible character -- the usual choice for continuing a clip."/>
+                                        <ComboBox ItemsSource="{x:Static local:EnumSources.VideoAudioUseChoices}"
+                                                  SelectedItem="{Binding AudioUse}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource EnumDisplay}}"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
                                         <TextBlock Text="Retention" FontSize="10" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="0,6,0,2"/>
                                         <ComboBox ItemsSource="{x:Static local:EnumSources.VisualRetentionChoices}"
                                                   SelectedItem="{Binding Retention}">

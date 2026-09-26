@@ -15,6 +15,21 @@ public static class EnumFormatting
         _ => value.ToString()
     };
 
+    public static string ToDisplay(this PreviousClipHandoff value) => value switch
+    {
+        PreviousClipHandoff.PinEnding => "Pin its ending onto the start of this clip",
+        PreviousClipHandoff.ReferenceVideo => "Use it as a reference video",
+        _ => value.ToString()
+    };
+
+    public static string ToDisplay(this VideoAudioUse value) => value switch
+    {
+        VideoAudioUse.None => "Don't use its audio",
+        VideoAudioUse.Reuse => "Reuse its audio",
+        VideoAudioUse.Reference => "Continue its audio (reference)",
+        _ => value.ToString()
+    };
+
     public static string ToPromptToken(this VisualRetentionType value) => value switch
     {
         VisualRetentionType.FullyPreserved => "fully_preserved",

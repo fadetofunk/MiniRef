@@ -15,19 +15,20 @@ public static partial class ReferenceNumberer
     public static string SpeakerTag(int subjectNumber) => $"(S{subjectNumber})";
 
     /// <summary>Assigns &lt;Subject N&gt;/&lt;Picture N&gt;/&lt;Audio N&gt; numbers from subject
-    /// list order alone. Used both by <see cref="Compute"/> and directly by the UI to label
+    /// list order alone (subject audios start at <paramref name="firstAudioNumber"/>, which is one past
+    /// <see cref="CountVideoAudios"/> because video soundtracks are numbered first). Used both by <see cref="Compute"/> and directly by the UI to label
     /// insert-tag chip buttons, so the numbers shown while writing always match the composed output.</summary>
     public static (
         IReadOnlyDictionary<Guid, int> SubjectNumbers,
         IReadOnlyDictionary<Guid, int> PictureNumbers,
-        IReadOnlyDictionary<Guid, int> AudioNumbers) NumberSubjects(IReadOnlyList<Subject> subjects)
+        IReadOnlyDictionary<Guid, int> AudioNumbers) NumberSubjects(IReadOnlyList<Subject> subjects, int firstAudioNumber = 1)
     {
         var subjectNumbers = new Dictionary<Guid, int>();
         var pictureNumbers = new Dictionary<Guid, int>();
         var audioNumbers = new Dictionary<Guid, int>();
 
         var pictureCounter = 0;
-        var audioCounter = 0;
+        var audioCounter = firstAudioNumber - 1;
         for (var i = 0; i < subjects.Count; i++)
         {
             var subject = subjects[i];
@@ -51,6 +52,31 @@ public static partial class ReferenceNumberer
         for (var i = 0; i < videos.Count; i++)
             videoNumbers[videos[i].Id] = i + 1;
         return videoNumbers;
+    }
+
+    /// <summary>How many source videos have their own soundtrack in use
+    /// (<see cref="VideoRef.AudioUse"/> not None) -- each takes one &lt;Audio N&gt; number.</summary>
+    public static int CountVideoAudios(IEnumerable<VideoRef> videos) => videos.Count(v => v.AudioUse != VideoAudioUse.None);
+
+    /// <summary>Assigns an &lt;Audio N&gt; number to each source video whose own soundtrack is in use,
+    /// in video-list order starting at 1, keyed by the VideoRef's Id. Merged into
+    /// <see cref="ReferenceNumbering.AudioNumbers"/> by <see cref="Compute"/>, so the existing
+    /// tag-renumbering follows them.
+    ///
+    /// These come BEFORE every subject audio: MiniMaxH3ReferenceToVideo emits a reference video's
+    /// soundtrack as its own audio item ahead of that video, and standalone reference audios after all
+    /// videos (confirmed against the node's source), so the soundtrack is &lt;Audio 1&gt; and the first
+    /// subject voice is &lt;Audio 2&gt; -- which is why <see cref="NumberSubjects"/> takes an offset.</summary>
+    public static IReadOnlyDictionary<Guid, int> NumberVideoAudios(IReadOnlyList<VideoRef> videos)
+    {
+        var counter = 0;
+        var numbers = new Dictionary<Guid, int>();
+        foreach (var video in videos)
+        {
+            if (video.AudioUse != VideoAudioUse.None)
+                numbers[video.Id] = ++counter;
+        }
+        return numbers;
     }
 
     /// <summary>Assigns speaker "(Sx)" IDs by the order subjects first actually speak, across
@@ -78,8 +104,13 @@ public static partial class ReferenceNumberer
 
     public static ReferenceNumbering Compute(SceneProject project)
     {
-        var (subjectNumbers, pictureNumbers, audioNumbers) = NumberSubjects(project.Subjects);
+        var (subjectNumbers, pictureNumbers, subjectAudioNumbers) =
+            NumberSubjects(project.Subjects, CountVideoAudios(project.SourceVideos) + 1);
         var videoNumbers = NumberVideos(project.SourceVideos);
+
+        var audioNumbers = new Dictionary<Guid, int>(subjectAudioNumbers);
+        foreach (var (videoId, number) in NumberVideoAudios(project.SourceVideos))
+            audioNumbers[videoId] = number;
         var speakerNumbers = NumberSpeakers(project.Shots);
         var shotNumbers = new Dictionary<Guid, int>();
 
@@ -110,23 +141,55 @@ public static partial class ReferenceNumberer
     /// only numbers that actually changed for a still-surviving Id get rewritten; a removed
     /// reference's own tag is left as dangling text for the user to notice and clean up, same as
     /// today, since there's no sensible number to rewrite it to.</summary>
-    public static void RewriteTagsAfterRenumbering(SceneProject project, ReferenceNumbering before, ReferenceNumbering after)
+    public static void RewriteTagsAfterRenumbering(SceneProject project, ReferenceNumbering before, ReferenceNumbering after) =>
+        RewriteTagsAfterRenumbering(project, [before], [after]);
+
+    /// <summary>Segment-aware form: <paramref name="before"/>/<paramref name="after"/> hold one
+    /// snapshot per segment (index 0 is the project's own, index i is <c>ForSegment(i)</c>), each
+    /// applied to only that segment's text. The cast is shared, so a deleted or reordered
+    /// subject/picture/audio shifts numbers in every segment's prompt -- but each segment has its
+    /// own &lt;Video&gt; and video-soundtrack &lt;Audio&gt; numbering, which is why the maps can't be
+    /// computed once and reused across segments.</summary>
+    public static void RewriteTagsAfterRenumbering(
+        SceneProject project, IReadOnlyList<ReferenceNumbering> before, IReadOnlyList<ReferenceNumbering> after)
     {
-        var subjectMap = BuildRenumberMap(before.SubjectNumbers, after.SubjectNumbers);
-        var pictureMap = BuildRenumberMap(before.PictureNumbers, after.PictureNumbers);
-        var audioMap = BuildRenumberMap(before.AudioNumbers, after.AudioNumbers);
-        var videoMap = BuildRenumberMap(before.VideoNumbers, after.VideoNumbers);
+        for (var i = 0; i < before.Count && i < after.Count; i++)
+        {
+            var subjectMap = BuildRenumberMap(before[i].SubjectNumbers, after[i].SubjectNumbers);
+            var pictureMap = BuildRenumberMap(before[i].PictureNumbers, after[i].PictureNumbers);
+            var audioMap = BuildRenumberMap(before[i].AudioNumbers, after[i].AudioNumbers);
+            var videoMap = BuildRenumberMap(before[i].VideoNumbers, after[i].VideoNumbers);
 
-        if (subjectMap.Count == 0 && pictureMap.Count == 0 && audioMap.Count == 0 && videoMap.Count == 0)
-            return;
+            if (subjectMap.Count == 0 && pictureMap.Count == 0 && audioMap.Count == 0 && videoMap.Count == 0)
+                continue;
 
-        foreach (var shot in project.Shots)
-            shot.Text = RewriteTags(shot.Text, subjectMap, pictureMap, audioMap, videoMap);
+            if (i == 0)
+            {
+                foreach (var shot in project.Shots)
+                    shot.Text = RewriteTags(shot.Text, subjectMap, pictureMap, audioMap, videoMap);
 
-        project.Summary = RewriteTags(project.Summary, subjectMap, pictureMap, audioMap, videoMap);
-        project.OverallSoundscape = RewriteTags(project.OverallSoundscape, subjectMap, pictureMap, audioMap, videoMap);
-        project.NonDiegeticMusic = RewriteTags(project.NonDiegeticMusic, subjectMap, pictureMap, audioMap, videoMap);
+                project.Summary = RewriteTags(project.Summary, subjectMap, pictureMap, audioMap, videoMap);
+                project.OverallSoundscape = RewriteTags(project.OverallSoundscape, subjectMap, pictureMap, audioMap, videoMap);
+                project.NonDiegeticMusic = RewriteTags(project.NonDiegeticMusic, subjectMap, pictureMap, audioMap, videoMap);
+            }
+            else if (i - 1 < project.Continuations.Count)
+            {
+                var segment = project.Continuations[i - 1];
+                foreach (var shot in segment.Shots)
+                    shot.Text = RewriteTags(shot.Text, subjectMap, pictureMap, audioMap, videoMap);
+
+                segment.Summary = RewriteTags(segment.Summary, subjectMap, pictureMap, audioMap, videoMap);
+                segment.OverallSoundscape = RewriteTags(segment.OverallSoundscape, subjectMap, pictureMap, audioMap, videoMap);
+                segment.NonDiegeticMusic = RewriteTags(segment.NonDiegeticMusic, subjectMap, pictureMap, audioMap, videoMap);
+            }
+        }
     }
+
+    /// <summary>Snapshots the numbering of every segment (the project's own, then each
+    /// continuation's view) -- the input <see cref="RewriteTagsAfterRenumbering(SceneProject, IReadOnlyList{ReferenceNumbering}, IReadOnlyList{ReferenceNumbering})"/>
+    /// wants, taken immediately before and after a list mutation.</summary>
+    public static IReadOnlyList<ReferenceNumbering> ComputeAllSegments(SceneProject project) =>
+        Enumerable.Range(0, project.SegmentCount).Select(i => Compute(project.ForSegment(i))).ToList();
 
     /// <summary>Old number -> new number, for every Id present in both snapshots whose number
     /// actually changed. An Id missing from <paramref name="after"/> (it was just removed) or

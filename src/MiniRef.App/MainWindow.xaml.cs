@@ -54,6 +54,8 @@ public partial class MainWindow : Window
     {
         if (e.PropertyName == nameof(MainViewModel.Project))
             AttachToProject(ViewModel.Project);
+        else if (e.PropertyName == nameof(MainViewModel.CurrentVideos))
+            AttachToVideos();   // a different segment has a different source-video list
     }
 
     private void AttachToProject(SceneProject project)
@@ -63,8 +65,15 @@ public partial class MainWindow : Window
         _subscribedList.CollectionChanged += SubjectList_CollectionChanged;
         foreach (var s in _subscribedList) SubscribeSubject(s);
 
+        AttachToVideos();
+    }
+
+    /// <summary>Subscribes to the source-video list of whichever segment is being edited -- the
+    /// project's own for segment 1, the single previous-clip video for a continuation.</summary>
+    private void AttachToVideos()
+    {
         DetachVideoList();
-        _subscribedVideoList = project.SourceVideos;
+        _subscribedVideoList = ViewModel.CurrentVideos;
         _subscribedVideoList.CollectionChanged += VideoList_CollectionChanged;
         foreach (var v in _subscribedVideoList) SubscribeVideo(v);
 
@@ -142,13 +151,14 @@ public partial class MainWindow : Window
     private void RefreshDerivedState()
     {
         var subjects = ViewModel.Project.Subjects;
-        var videos = ViewModel.Project.SourceVideos;
+        var videos = ViewModel.CurrentVideos.Where(v => v.IsPromptReference).ToList();
 
         _summaryChips.Clear();
         foreach (var chip in TagChipBuilder.Build(subjects, videos))
             _summaryChips.Add(chip);
 
-        var (_, pictureNumbers, audioNumbers) = ReferenceNumberer.NumberSubjects(subjects);
+        var (_, pictureNumbers, audioNumbers) = ReferenceNumberer.NumberSubjects(
+            subjects, ReferenceNumberer.CountVideoAudios(videos) + 1);
         foreach (var subject in subjects)
         {
             foreach (var picture in subject.Pictures)
@@ -156,26 +166,28 @@ public partial class MainWindow : Window
             foreach (var audio in subject.Audios)
                 audio.DisplayNumber = audioNumbers[audio.Id];
         }
+
+        ViewModel.RefreshSegmentWarnings();
     }
 
     private void SummaryChip_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not System.Windows.Controls.Button { Tag: string tagText }) return;
 
-        var summary = ViewModel.Project.Summary;
+        var summary = ViewModel.CurrentSummary;
         var caret = Math.Clamp(SummaryTextBox.CaretIndex, 0, summary.Length);
-        ViewModel.Project.Summary = summary.Insert(caret, tagText);
+        ViewModel.CurrentSummary = summary.Insert(caret, tagText);
 
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            SummaryTextBox.CaretIndex = Math.Min(caret + tagText.Length, ViewModel.Project.Summary.Length);
+            SummaryTextBox.CaretIndex = Math.Min(caret + tagText.Length, ViewModel.CurrentSummary.Length);
             SummaryTextBox.Focus();
         }), DispatcherPriority.Background);
     }
 
     private void Preview_Click(object sender, RoutedEventArgs e)
     {
-        new PromptPreviewWindow(ViewModel.Project) { Owner = this }.Show();
+        new PromptPreviewWindow(ViewModel.Project, ViewModel.CurrentSegmentIndex) { Owner = this }.Show();
     }
 
     private void MainWindow_Closing(object sender, CancelEventArgs e)

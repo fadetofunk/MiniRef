@@ -167,6 +167,12 @@ public static partial class ComfyWorkflowImporter
                 project.SourceVideos.Add(new VideoRef { Description = description });
         }
 
+        foreach (var (videoNumber, audioUse) in defs.VideoAudioUses)
+        {
+            if (videoNumber >= 1 && videoNumber <= project.SourceVideos.Count)
+                project.SourceVideos[videoNumber - 1].AudioUse = audioUse;
+        }
+
         ApplyRetention(project, sections.GetValueOrDefault("retention_analysis", ""), audiosByNumber);
 
         var (taskTypes, summary) = ParseSummary(sections.GetValueOrDefault("summary", ""));
@@ -201,8 +207,124 @@ public static partial class ComfyWorkflowImporter
         if (durationNode?["widgets_values"]?.AsArray() is { Count: > 0 } durationWidgets && durationWidgets[0] is { } dur)
             project.DurationSeconds = dur.GetValue<double>();
 
+        // Segment 1's noise node is the first RandomNoise; "fixed" means the export pinned the seeds.
+        if (FindNodeByType(nodes, "RandomNoise")?["widgets_values"]?.AsArray() is { Count: > 1 } noise
+            && noise[1]?.GetValue<string>() == "fixed")
+        {
+            project.FixSeed = true;
+            project.Seed = (long)noise[0]!.GetValue<double>();
+        }
+
+        ImportContinuationSegments(project, nodes);
+
         return project;
     }
+
+    // ---- continuation segments: the "... — Segment N" prompt/duration nodes a chained export clones ----
+
+    private static readonly Regex SegmentTitleRegex =
+        new(Regex.Escape(ComfyWorkflowExporter.SegmentTitleMarker) + @"(?<n>\d+)$");
+
+    /// <summary>Rebuilds segments 2..N of a chained workflow. Each one's prompt is its own PrimitiveStringMultiline
+    /// node titled "... — Segment N", so it goes through the same section parsing as segment 1's --
+    /// but only the parts that belong to a segment are kept: shots, summary, soundscape, music, duration,
+    /// and how the previous clip (its &lt;Video 1&gt;) is described and its soundtrack used. The cast
+    /// comes from segment 1 (it's shared), and the task types the continuation implies (video continuation,
+    /// audio reuse/reference) are dropped since <see cref="SceneProject.ForSegment"/> re-adds them.</summary>
+    private static void ImportContinuationSegments(SceneProject project, JsonArray nodes)
+    {
+        var promptNodes = nodes.Select(n => n!.AsObject())
+            .Where(n => n["type"]?.GetValue<string>() == "PrimitiveStringMultiline")
+            .Select(n => (Node: n, Match: SegmentTitleRegex.Match(n["title"]?.GetValue<string>() ?? "")))
+            .Where(x => x.Match.Success && int.Parse(x.Match.Groups["n"].Value) >= 2)
+            .Select(x => (Number: int.Parse(x.Match.Groups["n"].Value), x.Node))
+            .OrderBy(x => x.Number);
+
+        const TaskType implied = TaskType.VideoContinuation | TaskType.AudioReuse | TaskType.AudioReference;
+
+        foreach (var (number, promptNode) in promptNodes)
+        {
+            var text = (GetArrayWidget(promptNode, 0) ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
+            var sections = ParseSections(text);
+            var defs = ParseSubjectDefinitions(sections.GetValueOrDefault("subject_definitions", ""));
+
+            var segment = new SceneSegment();
+            var (taskTypes, summary) = ParseSummary(sections.GetValueOrDefault("summary", ""));
+            segment.TaskTypes = taskTypes & ~implied;
+            segment.Summary = summary;
+            segment.OverallSoundscape = sections.GetValueOrDefault("overall_soundscape", "");
+            segment.NonDiegeticMusic = sections.GetValueOrDefault("non_diegetic_music", "");
+
+            var (_, shots) = ParseDetailedDescription(sections.GetValueOrDefault("detailed_description", ""), project.Subjects);
+            foreach (var shot in shots)
+                segment.Shots.Add(shot);
+
+            if (defs.VideoDescriptions.TryGetValue(1, out var description))
+                segment.PreviousVideo.Description = description;
+            segment.PreviousVideo.AudioUse = defs.VideoAudioUses.GetValueOrDefault(1, VideoAudioUse.None);
+
+            // Reuse the retention parser on a throwaway project holding only this segment's <Video 1>,
+            // so it can't touch the shared subjects' own retention.
+            ApplyRetention(new SceneProject { Subjects = [], SourceVideos = segment.VideoList },
+                sections.GetValueOrDefault("retention_analysis", ""), new Dictionary<int, AudioRef>());
+
+            bool IsSegmentNode(JsonObject n, string type) =>
+                n["type"]?.GetValue<string>() == type
+                && SegmentTitleRegex.Match(n["title"]?.GetValue<string>() ?? "") is { Success: true } m
+                && int.Parse(m.Groups["n"].Value) == number;
+
+            // A pinned-ending continuation has a MiniMaxH3AddGuide titled "... - Segment N"; a reference-video
+            // one doesn't. Either way the previous clip's tail comes from the trim node that COUNTS FROM THE
+            // END (negative batch_index) -- the "drop the pinned frames" node after the decode counts from the start.
+            var addGuide = nodes.Select(n => n!.AsObject()).FirstOrDefault(n => IsSegmentNode(n, "MiniMaxH3AddGuide"));
+            var tailNode = nodes.Select(n => n!.AsObject()).FirstOrDefault(n =>
+                IsSegmentNode(n, "ImageFromBatch")
+                && n["widgets_values"]?.AsArray() is { Count: > 1 } w && w[0]!.GetValue<double>() < 0);
+            var tailFrames = tailNode?["widgets_values"]?.AsArray() is { Count: > 1 } tailWidgets ? tailWidgets[1]!.GetValue<double>() : 0;
+
+            segment.PreviousVideo.UseLastSeconds = tailFrames > 0 ? Math.Round(tailFrames / ClipFrames.Fps, 1) : 0;
+
+            var guideFrames = 0.0;
+            if (addGuide is not null)
+            {
+                segment.PreviousVideo.Handoff = PreviousClipHandoff.PinEnding;
+                guideFrames = tailFrames;
+                // The guide's soundtrack input is only wired when the previous clip's audio was in use.
+                var audioInput = addGuide["inputs"]?.AsArray().FirstOrDefault(i => i!["name"]?.GetValue<string>() == "audio");
+                segment.PreviousVideo.AudioUse = audioInput?["link"] is not null ? VideoAudioUse.Reference : VideoAudioUse.None;
+            }
+            else
+            {
+                segment.PreviousVideo.Handoff = PreviousClipHandoff.ReferenceVideo;
+            }
+
+            // The duration node holds the requested clip PLUS any pinned ending; subtract it back out.
+            var durationTitle = ComfyWorkflowExporterDurationTitle + ComfyWorkflowExporter.SegmentTitleMarker + number;
+            var durationNode = nodes.Select(n => n!.AsObject())
+                .FirstOrDefault(n => n["type"]?.GetValue<string>() == "PrimitiveFloat"
+                    && n["title"]?.GetValue<string>() == durationTitle);
+            if (durationNode?["widgets_values"]?.AsArray() is { Count: > 0 } widgets && widgets[0] is { } seconds)
+                segment.DurationSeconds = Math.Round(seconds.GetValue<double>() - guideFrames / ClipFrames.Fps, 2);
+
+            project.Continuations.Add(segment);
+        }
+
+        // Pinned continuations normally have "Drop the pinned ..." nodes before their CreateVideo; without
+        // them the diagnostic that keeps the pinned frames was on.
+        project.KeepPinnedFrames = project.Continuations.Any(c => c.PreviousVideo.Handoff == PreviousClipHandoff.PinEnding)
+            && !nodes.Any(n => n!["type"]?.GetValue<string>() == "ImageFromBatch"
+                && n["title"]?.GetValue<string>()?.StartsWith("Drop the pinned", StringComparison.Ordinal) == true);
+
+        // The joined-output pair is an extra SaveVideo titled "... - Joined"; without one, it was switched off.
+        if (project.Continuations.Count > 0)
+        {
+            project.SaveJoinedVideo = nodes.Any(n =>
+                n!["type"]?.GetValue<string>() == "SaveVideo"
+                && n["title"]?.GetValue<string>()?.EndsWith(ComfyWorkflowExporter.JoinedTitleMarker) == true);
+        }
+    }
+
+    private const string ComfyWorkflowExporterDurationTitle = "Float (Duration)";
 
     private static void FillNameIfBlank(Subject subject, string? name)
     {
@@ -327,6 +449,10 @@ public static partial class ComfyWorkflowImporter
         public Dictionary<int, int> PictureOwners { get; } = [];
         public Dictionary<int, int> AudioOwners { get; } = [];
         public Dictionary<int, string> VideoDescriptions { get; } = [];
+
+        /// <summary>Video number -> how its own soundtrack is used, from the "&lt;Audio N&gt; is the
+        /// synchronized audio track of &lt;Video M&gt;" sentence.</summary>
+        public Dictionary<int, VideoAudioUse> VideoAudioUses { get; } = [];
     }
 
     private static SubjectDefinitions ParseSubjectDefinitions(string content)
@@ -365,7 +491,19 @@ public static partial class ComfyWorkflowImporter
                 {
                     var m = AudioVoiceForRegex().Match(rest);
                     if (m.Success)
+                    {
                         result.AudioOwners[n] = int.Parse(m.Groups["subj"].Value);
+                        break;
+                    }
+
+                    var videoAudio = VideoAudioForRegex().Match(rest);
+                    if (videoAudio.Success)
+                    {
+                        result.VideoAudioUses[int.Parse(videoAudio.Groups["vid"].Value)] =
+                            videoAudio.Groups["rest"].Value.Contains("reused", StringComparison.OrdinalIgnoreCase)
+                                ? VideoAudioUse.Reuse
+                                : VideoAudioUse.Reference;
+                    }
                     break;
                 }
                 case "Video":
@@ -409,6 +547,9 @@ public static partial class ComfyWorkflowImporter
 
     [GeneratedRegex(@"^is the voice-timbre reference for <Subject (?<subj>\d+)> \(S\d+\)(?:,\s*.+)?\.$")]
     private static partial Regex AudioVoiceForRegex();
+
+    [GeneratedRegex(@"^is the synchronized audio track of <Video (?<vid>\d+)>(?<rest>.*)\.$")]
+    private static partial Regex VideoAudioForRegex();
 
     [GeneratedRegex(@"^is (?<desc>.+)\.$")]
     private static partial Regex VideoIsRegex();

@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace MiniRef.Core.Models;
@@ -19,4 +20,33 @@ public partial class VideoRef : ObservableObject
     /// only"), separate from any subject that might appear within the video.</summary>
     [ObservableProperty] private VisualRetentionType? retention;
     [ObservableProperty] private string retentionNote = "";
+
+    /// <summary>Whether this video's own soundtrack is fed to the reference node's paired
+    /// ref_video_audios input, and how the prompt describes it. When not None the video also
+    /// takes an &lt;Audio N&gt; number (after every subject audio) for that soundtrack.</summary>
+    [ObservableProperty] private VideoAudioUse audioUse = VideoAudioUse.None;
+
+    /// <summary>True for a continuation segment's &lt;Video 1&gt;: the previous segment's output,
+    /// fed in-graph (decoded frames + audio) rather than loaded from <see cref="FilePath"/>.</summary>
+    [ObservableProperty] private bool fromPreviousSegment;
+
+    /// <summary>For a <see cref="FromPreviousSegment"/> video only: feed the reference node just this
+    /// many seconds from the END of the previous clip (0 = all of it). The ending motion and audio tail
+    /// are what a continuation needs, and every reference frame is extra tokens on every sampling step,
+    /// so a short tail is far cheaper than the whole clip. Snapped to a valid clip length (17k + 5
+    /// frames) on export, and never longer than the new clip itself. Defaults to 3 -- also what a saved
+    /// segment from before this setting existed loads as, rather than silently meaning "the whole clip".
+    /// Ignored for ordinary file videos.</summary>
+    [ObservableProperty] private double useLastSeconds = 3.0;
+
+    /// <summary>For a <see cref="FromPreviousSegment"/> video only: pin the previous clip's ending onto the
+    /// start of this clip (default), or hand it over as a reference video. See <see cref="PreviousClipHandoff"/>.
+    /// A segment saved before this setting existed loads as PinEnding.</summary>
+    [ObservableProperty] private PreviousClipHandoff handoff = PreviousClipHandoff.PinEnding;
+
+    /// <summary>Whether this video is a &lt;Video N&gt; the prompt refers to. False only for a previous
+    /// segment's clip that is pinned onto the new clip's start instead -- it has no tag and no reference
+    /// slot, so the insert-tag chips and audio numbering must skip it. Not persisted.</summary>
+    [JsonIgnore]
+    public bool IsPromptReference => !(FromPreviousSegment && Handoff == PreviousClipHandoff.PinEnding);
 }
