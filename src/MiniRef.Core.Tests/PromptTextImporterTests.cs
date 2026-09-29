@@ -236,6 +236,49 @@ public class PromptTextImporterTests
     }
 
     [Fact]
+    public void ImportPromptText_StillFindsEverySection_WhenBlankLinesBetweenThemAreLost()
+    {
+        // Regression: a paste out of a browser/chat UI can collapse the blank line between sections
+        // down to a single line break (this is the shape that reproduced it -- built by literally
+        // doing that collapse below, rather than retyping a pre-collapsed prompt, so the test fails
+        // the same way the bug did if the fix ever regresses). Previously this made every section past
+        // subject_definitions disappear into it, and every <Subject N> mention anywhere in the rest of
+        // the prompt -- shot text, retention notes -- spawned a duplicate "Subject" entry, some of
+        // which stole a <Picture N>'s ownership away from the real subject that should hold it.
+        const string wellFormed = """
+            subject_definitions:
+            <Subject 1> is the superheroine as depicted in <Picture 1>, with her exact costume, hair, and every visual characteristic preserved.
+            <Subject 2> is the villain as depicted in <Picture 2>, with her exact costume, hair, and every visual characteristic preserved.
+
+            summary:
+            [reference generation] The superheroine and the villain, <Subject 1> and <Subject 2>, fight atop a scaffold.
+
+            retention_analysis:
+            <Subject 1> (appears in [Shot 1]): fully_preserved - kept as shown in <Picture 1>.
+            <Subject 2> (appears in [Shot 1]): fully_preserved - kept as shown in <Picture 2>.
+
+            detailed_description:
+            [Shot 1] <Subject 1>, exactly as shown in <Picture 1>, stumbles backward. <Subject 2>, exactly as shown in <Picture 2>, advances and drives a punch into <Subject 1>'s midsection.
+
+            overall_soundscape:
+            A low thud punctuates the punch.
+            """;
+        var collapsed = wellFormed.Replace("\n\n", "\n");
+
+        var imported = ComfyWorkflowImporter.ImportPromptText(collapsed);
+
+        Assert.Equal(2, imported.Subjects.Count);
+        Assert.Single(imported.Subjects[0].Pictures);
+        Assert.Single(imported.Subjects[1].Pictures);
+        Assert.Equal(VisualRetentionType.FullyPreserved, imported.Subjects[0].Retention);
+        Assert.Equal(VisualRetentionType.FullyPreserved, imported.Subjects[1].Retention);
+        Assert.True(imported.TaskTypes.HasFlag(TaskType.ReferenceGeneration));
+        Assert.Contains("fight atop a scaffold", imported.Summary);
+        Assert.Equal("A low thud punctuates the punch.", imported.OverallSoundscape);
+        Assert.Single(imported.Shots);
+    }
+
+    [Fact]
     public void Import_ExtractsStructuredDialogueFromAWorkflowShotToo_NotJustPastedText()
     {
         // The "both import paths" decision: a ComfyUI workflow's shot text gets the same

@@ -73,11 +73,19 @@ public static partial class ComfyWorkflowImporter
     private static SceneProject BuildProject(string promptText, JsonArray? nodes, string? comfyInputFolder)
     {
         // Text pasted from a Windows control (the Import Prompt Text box especially -- a WPF TextBox
-        // hands back "\r\n") arrives with CRLF line endings, which the section-header and
-        // paragraph-break regexes below match on "\n\n" and would silently miss -- collapsing the
-        // whole prompt into subject_definitions and dumping it into the subjects' appearance text.
-        // Normalize to "\n" once here so every downstream parser sees the shape it expects.
-        promptText = promptText.Replace("\r\n", "\n").Replace('\r', '\n');
+        // hands back CRLF) arrives with CRLF line endings, which the section-header and
+        // paragraph-break regexes below match on a plain newline and would otherwise miss. A paste
+        // copied out of a browser/chat UI can also carry the Unicode line separator U+2028 or
+        // paragraph separator U+2029 instead of an ASCII newline. Normalize all of these to a plain
+        // newline once here so every downstream parser sees the shape it expects. Built from
+        // character codes rather than typed escape sequences to avoid an editor/tooling quirk that
+        // can otherwise mangle escape-sequence literals pasted straight into this file.
+        var lf = (char)10;
+        var cr = (char)13;
+        promptText = promptText.Replace(cr.ToString() + lf, lf.ToString())
+            .Replace(cr, lf)
+            .Replace((char)0x2028, lf)
+            .Replace((char)0x2029, lf);
 
         var project = new SceneProject();
         project.Subjects.Clear();
@@ -424,11 +432,18 @@ public static partial class ComfyWorkflowImporter
 
         // Accept both the shape PromptComposer emits ("name\n<content>") and the MiniMax H3 guide's
         // own "name: <content>" one-liner shape that a hand-written or AI-drafted prompt tends to use,
-        // plus any known alias header name (mapped back to its canonical section here).
+        // plus any known alias header name (mapped back to its canonical section here). A header only
+        // needs to start its own line -- NOT a full blank line before it -- since a paste out of a
+        // browser/chat UI often collapses blank lines between sections to a single line break (or even
+        // a Unicode line/paragraph separator, normalized to a plain newline above) while keeping each
+        // section on its own line; requiring a full blank line here used to make every section past
+        // the first disappear into subject_definitions when that happened, which cascaded into
+        // spraying a duplicate "Subject" entry for every stray &lt;Subject N&gt; mention anywhere in
+        // the prompt (see ParseSubjectDefinitions).
         var headers = new List<(string Name, int Start, int ContentStart)>();
         foreach (var name in SectionNames.Concat(SectionAliases.Keys))
         {
-            var m = Regex.Match(promptText, $@"(?:^|\n\n){Regex.Escape(name)}[ \t]*:?[ \t]*\n?");
+            var m = Regex.Match(promptText, $@"(?:^|\n)[ \t]*{Regex.Escape(name)}[ \t]*:?[ \t]*\n?");
             if (m.Success)
                 headers.Add((SectionAliases.GetValueOrDefault(name, name), m.Index, m.Index + m.Length));
         }
@@ -465,6 +480,15 @@ public static partial class ComfyWorkflowImporter
         var result = new SubjectDefinitions();
         if (string.IsNullOrWhiteSpace(content)) return result;
 
+        // First occurrence of a given number wins for every map below, defense in depth against
+        // section-header detection ever swallowing content it shouldn't (see ParseSections): a
+        // well-formed subject_definitions section only ever declares each <Subject N>/<Picture N>/
+        // <Audio N>/<Video N> once anyway, so this changes nothing for correctly-split input, but it
+        // stops a stray "<Subject 1> ... <Picture 1> ..." mention found deep in shot text (which would
+        // otherwise still start with a leading <Subject N> tag and get parsed as another declaration)
+        // from spawning a duplicate Subject or stealing a picture's ownership away from the real one.
+        var seenSubjectNumbers = new HashSet<int>();
+
         foreach (var chunk in SplitIntoSentences(content))
         {
             var tagMatch = LeadingTagRegex().Match(chunk);
@@ -476,6 +500,8 @@ public static partial class ComfyWorkflowImporter
             {
                 case "Subject":
                 {
+                    if (!seenSubjectNumbers.Add(n)) break;
+
                     // Canonical: "<Subject N> is <desc>, whose appearance comes from <Picture a> and <Picture b>."
                     // Lenient:   "<Subject N> is <free text that mentions <Picture k> somewhere inline>".
                     // Drop a leading "is ", claim every <Picture k> the sentence names, and cut the
@@ -483,7 +509,7 @@ public static partial class ComfyWorkflowImporter
                     var body = SubjectIsRegex().Match(rest) is { Success: true } isMatch ? rest[isMatch.Length..] : rest;
 
                     foreach (Match pm in PictureTagRegex().Matches(body))
-                        result.PictureOwners[int.Parse(pm.Groups["n"].Value)] = n;
+                        result.PictureOwners.TryAdd(int.Parse(pm.Groups["n"].Value), n);
 
                     var appearance = AppearanceClauseRegex().Match(body);
                     var description = appearance.Success ? body[..appearance.Index] : body;
@@ -497,17 +523,17 @@ public static partial class ComfyWorkflowImporter
                     var m = AudioVoiceForRegex().Match(rest);
                     if (m.Success)
                     {
-                        result.AudioOwners[n] = int.Parse(m.Groups["subj"].Value);
+                        result.AudioOwners.TryAdd(n, int.Parse(m.Groups["subj"].Value));
                         break;
                     }
 
                     var videoAudio = VideoAudioForRegex().Match(rest);
                     if (videoAudio.Success)
                     {
-                        result.VideoAudioUses[int.Parse(videoAudio.Groups["vid"].Value)] =
+                        result.VideoAudioUses.TryAdd(int.Parse(videoAudio.Groups["vid"].Value),
                             videoAudio.Groups["rest"].Value.Contains("reused", StringComparison.OrdinalIgnoreCase)
                                 ? VideoAudioUse.Reuse
-                                : VideoAudioUse.Reference;
+                                : VideoAudioUse.Reference);
                     }
                     break;
                 }
@@ -515,7 +541,7 @@ public static partial class ComfyWorkflowImporter
                 {
                     var m = VideoIsRegex().Match(rest);
                     if (m.Success)
-                        result.VideoDescriptions[n] = StripTrailingPeriod(m.Groups["desc"].Value.Trim());
+                        result.VideoDescriptions.TryAdd(n, StripTrailingPeriod(m.Groups["desc"].Value.Trim()));
                     break;
                 }
             }
